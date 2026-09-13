@@ -1,0 +1,371 @@
+package com.example.angi.ui.settings
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Memory
+import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.example.angi.domain.models.ComputeUnit
+import com.example.angi.domain.models.RuntimeType
+import com.example.ui.theme.AngiDarkBackground
+import com.example.ui.theme.AngiDarkSurface
+import com.example.ui.theme.AngiDarkSurfaceVariant
+import com.example.ui.theme.AngiPrimary
+import com.example.ui.theme.AngiSecondary
+import com.example.ui.theme.AngiTertiary
+import com.example.ui.theme.AngiTextPrimary
+import com.example.ui.theme.AngiTextSecondary
+import com.example.ui.theme.AngiTextTertiary
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SettingsScreen(
+    viewModel: SettingsViewModel,
+    modifier: Modifier = Modifier
+) {
+    val settings by viewModel.settings.collectAsState()
+
+    Scaffold(
+        modifier = modifier.fillMaxSize(),
+        containerColor = AngiDarkBackground,
+        topBar = {
+            TopAppBar(
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = AngiDarkSurface,
+                    titleContentColor = AngiTextPrimary
+                ),
+                title = {
+                    Text(
+                        text = "Inference & Policy Settings",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 18.sp,
+                        color = AngiTextPrimary
+                    )
+                }
+            )
+        }
+    ) { innerPadding ->
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding),
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            // Compute Unit Selection
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = AngiDarkSurface)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Memory,
+                                contentDescription = null,
+                                tint = AngiPrimary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Preferred Compute Unit",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 15.sp,
+                                color = AngiTextPrimary
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "Select Snapdragon accelerator target. Hexagon NPU gives peak throughput with lowest power consumption.",
+                            fontSize = 12.sp,
+                            color = AngiTextSecondary
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            ComputeUnit.values().forEach { unit ->
+                                val isSelected = settings.computeUnit == unit
+                                FilterChip(
+                                    selected = isSelected,
+                                    onClick = { viewModel.updateSettings(settings.copy(computeUnit = unit)) },
+                                    label = { Text(unit.name, fontSize = 12.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal) },
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = AngiPrimary,
+                                        selectedLabelColor = AngiDarkBackground,
+                                        containerColor = AngiDarkSurfaceVariant,
+                                        labelColor = AngiTextPrimary
+                                    ),
+                                    modifier = Modifier.testTag("compute_chip_${unit.name}")
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Runtime selection
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = AngiDarkSurface)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Tune,
+                                contentDescription = null,
+                                tint = AngiSecondary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Runtime Backend",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 15.sp,
+                                color = AngiTextPrimary
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            RuntimeType.values().forEach { runtime ->
+                                val isSelected = settings.runtimeType == runtime
+                                FilterChip(
+                                    selected = isSelected,
+                                    onClick = { viewModel.updateSettings(settings.copy(runtimeType = runtime)) },
+                                    label = { Text(runtime.name, fontSize = 12.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal) },
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = AngiSecondary,
+                                        selectedLabelColor = AngiDarkBackground,
+                                        containerColor = AngiDarkSurfaceVariant,
+                                        labelColor = AngiTextPrimary
+                                    ),
+                                    modifier = Modifier.testTag("runtime_chip_${runtime.name}")
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Sampling parameters
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = AngiDarkSurface)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            text = "Sampling & Generation Controls",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 15.sp,
+                            color = AngiTextPrimary
+                        )
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("Temperature", fontSize = 13.sp, color = AngiTextSecondary)
+                            Text(
+                                String.format("%.2f", settings.temperature),
+                                fontSize = 13.sp,
+                                color = AngiPrimary,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+                        Slider(
+                            value = settings.temperature,
+                            onValueChange = { viewModel.updateSettings(settings.copy(temperature = it)) },
+                            valueRange = 0.0f..1.5f,
+                            colors = SliderDefaults.colors(
+                                thumbColor = AngiPrimary,
+                                activeTrackColor = AngiPrimary,
+                                inactiveTrackColor = AngiDarkSurfaceVariant
+                            )
+                        )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("Top-P", fontSize = 13.sp, color = AngiTextSecondary)
+                            Text(
+                                String.format("%.2f", settings.topP),
+                                fontSize = 13.sp,
+                                color = AngiPrimary,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+                        Slider(
+                            value = settings.topP,
+                            onValueChange = { viewModel.updateSettings(settings.copy(topP = it)) },
+                            valueRange = 0.1f..1.0f,
+                            colors = SliderDefaults.colors(
+                                thumbColor = AngiPrimary,
+                                activeTrackColor = AngiPrimary,
+                                inactiveTrackColor = AngiDarkSurfaceVariant
+                            )
+                        )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("Max Tokens", fontSize = 13.sp, color = AngiTextSecondary)
+                            Text(
+                                "${settings.maxTokens}",
+                                fontSize = 13.sp,
+                                color = AngiPrimary,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+                        Slider(
+                            value = settings.maxTokens.toFloat(),
+                            onValueChange = { viewModel.updateSettings(settings.copy(maxTokens = it.toInt())) },
+                            valueRange = 128f..4096f,
+                            steps = 30,
+                            colors = SliderDefaults.colors(
+                                thumbColor = AngiPrimary,
+                                activeTrackColor = AngiPrimary,
+                                inactiveTrackColor = AngiDarkSurfaceVariant
+                            )
+                        )
+                    }
+                }
+            }
+
+            // System prompt
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = AngiDarkSurface)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            text = "System Instruction",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 15.sp,
+                            color = AngiTextPrimary
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        OutlinedTextField(
+                            value = settings.systemPrompt,
+                            onValueChange = { viewModel.updateSettings(settings.copy(systemPrompt = it)) },
+                            modifier = Modifier.fillMaxWidth(),
+                            minLines = 3,
+                            maxLines = 6,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = AngiTextPrimary,
+                                unfocusedTextColor = AngiTextPrimary,
+                                focusedContainerColor = AngiDarkSurfaceVariant,
+                                unfocusedContainerColor = AngiDarkSurfaceVariant,
+                                focusedBorderColor = AngiPrimary,
+                                unfocusedBorderColor = androidx.compose.ui.graphics.Color.Transparent
+                            ),
+                            shape = RoundedCornerShape(8.dp)
+                        )
+                    }
+                }
+            }
+
+            // Capability policy
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = AngiDarkSurface)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Security,
+                                contentDescription = null,
+                                tint = AngiTertiary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Capability Policy & Network",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 15.sp,
+                                color = AngiTextPrimary
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Auto-execute network tools", fontSize = 13.sp, color = AngiTextPrimary)
+                                Text(
+                                    "Allow web_fetch without explicit user prompt",
+                                    fontSize = 11.sp,
+                                    color = AngiTextSecondary
+                                )
+                            }
+                            Switch(
+                                checked = settings.allowUnconfirmedNetworkTools,
+                                onCheckedChange = { viewModel.updateSettings(settings.copy(allowUnconfirmedNetworkTools = it)) },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = AngiDarkBackground,
+                                    checkedTrackColor = AngiPrimary
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

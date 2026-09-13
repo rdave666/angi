@@ -1,0 +1,6 @@
+{
+  "name": "ANGI",
+  "description": "Local-first AI application for Qualcomm Snapdragon on-device inference with structured tools and persistent model management",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
