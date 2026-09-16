@@ -64,6 +64,8 @@ android {
   packaging {
     jniLibs {
       useLegacyPackaging = true
+      pickFirsts.add("**/libnpu_jni.so")
+      pickFirsts.add("**/libOpenCL.so")
     }
   }
   testOptions { unitTests { isIncludeAndroidResources = true } }

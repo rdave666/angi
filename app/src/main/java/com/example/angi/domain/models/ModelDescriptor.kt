@@ -23,6 +23,18 @@ enum class Modality {
     MULTIMODAL_EXPERIMENTAL
 }
 
+enum class ModelLifecycleState {
+    MISSING,
+    DOWNLOADING,
+    IMPORTING,
+    VALIDATING,
+    AVAILABLE,
+    LOADING,
+    LOADED,
+    FAILED,
+    INCOMPATIBLE
+}
+
 data class ModelDescriptor(
     val id: String,
     val name: String,
@@ -37,7 +49,8 @@ data class ModelDescriptor(
     val contextLength: Int = 2048,
     val fileSizeBytes: Long = 0L,
     val isBundled: Boolean = false,
-    val isReady: Boolean = true,
+    val lifecycleState: ModelLifecycleState = ModelLifecycleState.AVAILABLE,
+    val isReady: Boolean = (lifecycleState == ModelLifecycleState.AVAILABLE || lifecycleState == ModelLifecycleState.LOADED),
     val modality: Modality = Modality.TEXT_ONLY,
     val description: String = ""
 )

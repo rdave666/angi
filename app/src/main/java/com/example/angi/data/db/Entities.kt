@@ -11,6 +11,7 @@ import com.example.angi.domain.models.ComputeUnit
 import com.example.angi.domain.models.Modality
 import com.example.angi.domain.models.ModelDescriptor
 import com.example.angi.domain.models.ModelFormat
+import com.example.angi.domain.models.ModelLifecycleState
 import com.example.angi.domain.models.RuntimeType
 import com.example.angi.domain.tools.ToolCall
 import com.example.angi.domain.tools.ToolResult
@@ -55,7 +56,8 @@ data class ModelEntity(
     val isBundled: Boolean,
     val isReady: Boolean,
     val modality: String,
-    val description: String
+    val description: String,
+    val lifecycleState: String = "AVAILABLE"
 ) {
     fun toDomain() = ModelDescriptor(
         id = id,
@@ -71,7 +73,9 @@ data class ModelEntity(
         contextLength = contextLength,
         fileSizeBytes = fileSizeBytes,
         isBundled = isBundled,
-        isReady = isReady,
+        lifecycleState = runCatching { ModelLifecycleState.valueOf(lifecycleState) }.getOrDefault(
+            if (isReady) ModelLifecycleState.AVAILABLE else ModelLifecycleState.MISSING
+        ),
         modality = runCatching { Modality.valueOf(modality) }.getOrDefault(Modality.TEXT_ONLY),
         description = description
     )

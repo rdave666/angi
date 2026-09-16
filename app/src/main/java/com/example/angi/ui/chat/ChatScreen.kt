@@ -112,16 +112,31 @@ fun ChatScreen(
                                 color = AngiPrimary
                             )
                             Spacer(modifier = Modifier.width(8.dp))
+                            val isLoaded = uiState.runtimeInfo?.isModelLoaded == true
+                            val compute = uiState.runtimeInfo?.computeUnit ?: "NONE"
+                            val computeLabel = when {
+                                !isLoaded -> "OFFLINE"
+                                compute.contains("NPU", ignoreCase = true) -> "HEXAGON NPU"
+                                compute.contains("GPU", ignoreCase = true) -> "ADRENO GPU"
+                                compute.contains("CPU", ignoreCase = true) -> "CPU"
+                                else -> compute.uppercase()
+                            }
+                            val badgeColor = when {
+                                !isLoaded -> AngiTextTertiary
+                                compute.contains("NPU", ignoreCase = true) -> AngiSecondary
+                                compute.contains("GPU", ignoreCase = true) -> AngiPrimary
+                                else -> AngiTextSecondary
+                            }
                             Surface(
                                 shape = RoundedCornerShape(4.dp),
-                                color = AngiSecondary.copy(alpha = 0.2f),
-                                border = androidx.compose.foundation.BorderStroke(1.dp, AngiSecondary.copy(alpha = 0.4f))
+                                color = badgeColor.copy(alpha = 0.2f),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, badgeColor.copy(alpha = 0.4f))
                             ) {
                                 Text(
-                                    text = "SNAPDRAGON NPU",
+                                    text = computeLabel,
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = AngiSecondary,
+                                    color = badgeColor,
                                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                 )
                             }
@@ -188,7 +203,7 @@ fun ChatScreen(
                             Spacer(modifier = Modifier.width(10.dp))
                             val statusLabel = when (val state = uiState.generationState) {
                                 is GenerationState.Preparing -> state.status
-                                is GenerationState.Generating -> "Hexagon NPU streaming (${state.tokensCount} tokens)..."
+                                is GenerationState.Generating -> "Streaming (${state.tokensCount} tokens)..."
                                 is GenerationState.ExecutingTool -> "Executing tool '${state.toolName}'..."
                                 is GenerationState.Stopping -> "Stopping inference..."
                                 is GenerationState.Failed -> "Failed: ${state.error}"
@@ -384,7 +399,7 @@ fun MessageCard(
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = "Hexagon NPU",
+                            text = message.metrics.computeUnit.ifBlank { "Local" },
                             fontSize = 10.sp,
                             color = AngiSecondary,
                             fontFamily = FontFamily.Monospace

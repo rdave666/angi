@@ -49,6 +49,17 @@ data class GenerationMetrics(
     val stopReason: String = ""
 )
 
+enum class RuntimeState {
+    UNINITIALIZED,
+    INITIALIZING,
+    READY,
+    MODEL_LOADING,
+    MODEL_LOADED,
+    MODEL_LOAD_FAILED,
+    GENERATION_ACTIVE,
+    FAILED
+}
+
 data class RuntimeInfo(
     val engineName: String,
     val backend: String,
@@ -58,5 +69,7 @@ data class RuntimeInfo(
     val detectedChipset: String,
     val isSnapdragonHexagonSupported: Boolean,
     val sdkVersion: String,
-    val isSdkInitialized: Boolean = false
+    val isSdkInitialized: Boolean = false,
+    val runtimeState: RuntimeState = RuntimeState.UNINITIALIZED,
+    val lastError: String? = null
 )

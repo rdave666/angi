@@ -46,6 +46,7 @@ sealed interface GenerationState {
     data class Preparing(val status: String) : GenerationState
     data class Generating(val partialText: String, val tokensCount: Int) : GenerationState
     data class ExecutingTool(val toolName: String) : GenerationState
+    data class AwaitingConfirmation(val toolCall: ToolCall, val toolName: String) : GenerationState
     data object Stopping : GenerationState
     data class Failed(val error: String) : GenerationState
 }

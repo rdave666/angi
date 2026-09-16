@@ -155,8 +155,8 @@ fun DiagnosticsScreen(
 
                         Spacer(modifier = Modifier.height(10.dp))
 
-                        DiagRow("Target Target Device", "Samsung Galaxy S23 Ultra (SM-S918B)")
-                        DiagRow("Chipset Architecture", "Snapdragon 8 Gen 2 / SM8550 (Hexagon)")
+                        DiagRow("Target Architecture", "Snapdragon 8 Gen 2 / SM8550")
+                        DiagRow("Device Model", android.os.Build.MODEL)
                         DiagRow("System Hardware", uiState.deviceHardware)
                         DiagRow("SoC Descriptor", uiState.socModel)
                         DiagRow("Android Version", uiState.androidVersion)
@@ -195,13 +195,17 @@ fun DiagnosticsScreen(
                         DiagRow("SDK Version", uiState.runtimeInfo?.sdkVersion ?: "0.3.1")
                         DiagRow(
                             "SDK Init Status",
-                            if (uiState.runtimeInfo?.isSdkInitialized == true) "Active (JNI bound)" else "Native Library Extracted"
+                            if (uiState.runtimeInfo?.isSdkInitialized == true) "Active (JNI bound)" else "Uninitialized"
                         )
-                        DiagRow("Engine Backend", uiState.runtimeInfo?.backend ?: "QAIRT / llama.cpp")
-                        DiagRow("Active Compute Unit", uiState.runtimeInfo?.computeUnit ?: "Hexagon NPU")
+                        DiagRow("Runtime State", uiState.runtimeInfo?.runtimeState?.name ?: "UNKNOWN")
+                        DiagRow("Engine Backend", uiState.runtimeInfo?.backend ?: "None")
+                        DiagRow("Active Compute Unit", uiState.runtimeInfo?.computeUnit ?: "NONE")
                         DiagRow("Available RAM", uiState.availRam)
                         DiagRow("Total System RAM", uiState.totalRam)
-                        DiagRow("Active Model", uiState.activeModel?.name ?: "None loaded")
+                        DiagRow("Active Model", if (uiState.runtimeInfo?.isModelLoaded == true) (uiState.activeModel?.name ?: "Loaded") else "None loaded")
+                        if (!uiState.runtimeInfo?.lastError.isNullOrBlank()) {
+                            DiagRow("Last Error", uiState.runtimeInfo?.lastError ?: "")
+                        }
                     }
                 }
             }

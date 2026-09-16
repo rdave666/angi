@@ -30,6 +30,15 @@ interface ModelRepository {
     suspend fun initializeBundledOrPresetModels()
 }
 
+private data class ImportMetadata(
+    val format: ModelFormat,
+    val runtime: RuntimeType,
+    val preferredCompute: ComputeUnit,
+    val fallbackCompute: ComputeUnit,
+    val lifecycleState: com.example.angi.domain.models.ModelLifecycleState,
+    val description: String
+)
+
 class LocalModelRepository(
     private val context: Context,
     private val dao: ModelDao
@@ -65,7 +74,8 @@ class LocalModelRepository(
             isBundled = model.isBundled,
             isReady = model.isReady,
             modality = model.modality.name,
-            description = model.description
+            description = model.description,
+            lifecycleState = model.lifecycleState.name
         )
         dao.insertModel(entity)
         saveMetadataJson(model)
@@ -85,45 +95,75 @@ class LocalModelRepository(
             } ?: throw IllegalStateException("Could not open input stream from URI: $uri")
 
             val fileSize = targetFile.length()
-            val format = when {
-                fileName.endsWith(".gguf", ignoreCase = true) -> ModelFormat.GGUF
-                fileName.endsWith(".onnx", ignoreCase = true) -> ModelFormat.ONNX
-                targetFile.isDirectory || fileName.contains("qairt", ignoreCase = true) -> ModelFormat.QAIRT_BUNDLE
-                else -> ModelFormat.GGUF
-            }
+            val lowerName = fileName.lowercase()
 
-            val runtime = when (format) {
-                ModelFormat.QAIRT_BUNDLE -> RuntimeType.QAIRT
-                else -> RuntimeType.LLAMA_CPP
+            // Header verification for GGUF
+            val isGgufHeaderValid = if (targetFile.isFile && fileSize >= 4) {
+                targetFile.inputStream().use { stream ->
+                    val magic = ByteArray(4)
+                    val read = stream.read(magic)
+                    read == 4 && magic[0] == 0x47.toByte() && magic[1] == 0x47.toByte() && magic[2] == 0x55.toByte() && magic[3] == 0x46.toByte()
+                }
+            } else false
+
+            val meta = when {
+                lowerName.endsWith(".gguf") -> {
+                    if (isGgufHeaderValid) {
+                        ImportMetadata(ModelFormat.GGUF, RuntimeType.LLAMA_CPP, ComputeUnit.GPU, ComputeUnit.CPU, com.example.angi.domain.models.ModelLifecycleState.AVAILABLE, "Valid GGUF model runnable on llama.cpp.")
+                    } else {
+                        ImportMetadata(ModelFormat.GGUF, RuntimeType.LLAMA_CPP, ComputeUnit.CPU, ComputeUnit.CPU, com.example.angi.domain.models.ModelLifecycleState.FAILED, "Header validation failed: File is not a valid GGUF.")
+                    }
+                }
+                lowerName.endsWith(".onnx") -> {
+                    ImportMetadata(ModelFormat.ONNX, RuntimeType.LLAMA_CPP, ComputeUnit.CPU, ComputeUnit.CPU, com.example.angi.domain.models.ModelLifecycleState.INCOMPATIBLE, "ONNX format is incompatible with llama.cpp runtime without compilation.")
+                }
+                lowerName.contains("qairt") || targetFile.isDirectory -> {
+                    // Check for QAIRT bundle structure
+                    val hasBin = File(targetDir, "model.bin").exists() || targetFile.name.endsWith(".bin") || targetFile.name.endsWith(".dlc")
+                    if (hasBin) {
+                        ImportMetadata(ModelFormat.QAIRT_BUNDLE, RuntimeType.QAIRT, ComputeUnit.NPU, ComputeUnit.CPU, com.example.angi.domain.models.ModelLifecycleState.AVAILABLE, "Validated Qualcomm AI Engine Direct (QAIRT) bundle.")
+                    } else {
+                        ImportMetadata(ModelFormat.QAIRT_BUNDLE, RuntimeType.QAIRT, ComputeUnit.NPU, ComputeUnit.CPU, com.example.angi.domain.models.ModelLifecycleState.FAILED, "Invalid QAIRT bundle: missing model.bin or DLC graph.")
+                    }
+                }
+                else -> {
+                    if (isGgufHeaderValid) {
+                        ImportMetadata(ModelFormat.GGUF, RuntimeType.LLAMA_CPP, ComputeUnit.GPU, ComputeUnit.CPU, com.example.angi.domain.models.ModelLifecycleState.AVAILABLE, "Imported GGUF model.")
+                    } else {
+                        ImportMetadata(ModelFormat.GGUF, RuntimeType.LLAMA_CPP, ComputeUnit.CPU, ComputeUnit.CPU, com.example.angi.domain.models.ModelLifecycleState.FAILED, "Unrecognized or invalid model format.")
+                    }
+                }
             }
 
             val family = when {
-                fileName.contains("qwen", ignoreCase = true) -> "Qwen"
-                fileName.contains("phi", ignoreCase = true) -> "Phi"
-                fileName.contains("llama", ignoreCase = true) -> "Llama"
-                fileName.contains("mistral", ignoreCase = true) -> "Mistral"
-                fileName.contains("gemma", ignoreCase = true) -> "Gemma"
+                lowerName.contains("qwen") -> "Qwen"
+                lowerName.contains("phi") -> "Phi"
+                lowerName.contains("llama") -> "Llama"
+                lowerName.contains("mistral") -> "Mistral"
+                lowerName.contains("gemma") -> "Gemma"
                 else -> "Local LLM"
             }
 
             val descriptor = ModelDescriptor(
                 id = modelId,
-                name = fileName.removeSuffix(".gguf").replace("-", " ").replace("_", " ").capitalizeWords(),
+                name = fileName.removeSuffix(".gguf").removeSuffix(".bin").replace("-", " ").replace("_", " ").capitalizeWords(),
                 family = family,
-                format = format,
-                runtime = runtime,
-                preferredCompute = ComputeUnit.NPU,
-                fallbackCompute = ComputeUnit.CPU,
+                format = meta.format,
+                runtime = meta.runtime,
+                preferredCompute = meta.preferredCompute,
+                fallbackCompute = meta.fallbackCompute,
                 modelPath = targetFile.absolutePath,
                 fileSizeBytes = fileSize,
                 isBundled = false,
-                isReady = true,
+                lifecycleState = meta.lifecycleState,
                 modality = Modality.TEXT_ONLY,
-                description = "Imported $format model optimized for Snapdragon Hexagon NPU."
+                description = meta.description
             )
 
             registerModel(descriptor)
-            setActiveModel(descriptor.id)
+            if (descriptor.isReady) {
+                setActiveModel(descriptor.id)
+            }
             descriptor
         }
     }
@@ -156,9 +196,12 @@ class LocalModelRepository(
 
     override suspend fun initializeBundledOrPresetModels() = withContext(Dispatchers.IO) {
         // Register default model profiles matching target device hardware (Snapdragon 8 Gen 2 / SM8550)
-        // If no models registered, create pre-configured profiles for S23 Ultra Hexagon NPU execution
+        // Check actual file presence: if model file does not exist, mark lifecycleState = MISSING and isReady = false
         val existing = dao.getModelById("qwen2_5_1_5b_qairt")
         if (existing == null) {
+            val qairtPath = File(modelsDir, "qwen2_5_1_5b_qairt/model.bin").absolutePath
+            val qairtExists = File(qairtPath).exists() && File(qairtPath).length() > 0
+
             val qairtPreset = ModelDescriptor(
                 id = "qwen2_5_1_5b_qairt",
                 name = "Qwen 2.5 1.5B (QAIRT NPU)",
@@ -167,16 +210,19 @@ class LocalModelRepository(
                 runtime = RuntimeType.QAIRT,
                 preferredCompute = ComputeUnit.NPU,
                 fallbackCompute = ComputeUnit.CPU,
-                modelPath = File(modelsDir, "qwen2_5_1_5b_qairt/model.bin").absolutePath,
+                modelPath = qairtPath,
                 parameterCount = "1.5B",
                 contextLength = 4096,
                 fileSizeBytes = 1_650_000_000L,
                 isBundled = false,
-                isReady = true,
+                lifecycleState = if (qairtExists) com.example.angi.domain.models.ModelLifecycleState.AVAILABLE else com.example.angi.domain.models.ModelLifecycleState.MISSING,
                 modality = Modality.TEXT_ONLY,
-                description = "Optimized Snapdragon 8 Gen 2 / SM8550 Qualcomm AI Engine Direct Hexagon bundle."
+                description = "Snapdragon 8 Gen 2 / SM8550 Qualcomm AI Engine Direct Hexagon bundle profile."
             )
             registerModel(qairtPreset)
+
+            val llamaPath = File(modelsDir, "llama3_2_1b_gguf/model.gguf").absolutePath
+            val llamaExists = File(llamaPath).exists() && File(llamaPath).length() > 0
 
             val llamaPreset = ModelDescriptor(
                 id = "llama3_2_1b_gguf",
@@ -184,18 +230,21 @@ class LocalModelRepository(
                 family = "Llama",
                 format = ModelFormat.GGUF,
                 runtime = RuntimeType.LLAMA_CPP,
-                preferredCompute = ComputeUnit.NPU,
-                fallbackCompute = ComputeUnit.GPU,
-                modelPath = File(modelsDir, "llama3_2_1b_gguf/model.gguf").absolutePath,
+                preferredCompute = ComputeUnit.GPU,
+                fallbackCompute = ComputeUnit.CPU,
+                modelPath = llamaPath,
                 parameterCount = "1.2B",
                 contextLength = 2048,
                 fileSizeBytes = 1_250_000_000L,
                 isBundled = false,
-                isReady = true,
+                lifecycleState = if (llamaExists) com.example.angi.domain.models.ModelLifecycleState.AVAILABLE else com.example.angi.domain.models.ModelLifecycleState.MISSING,
                 modality = Modality.TEXT_ONLY,
-                description = "High-efficiency GGUF model runnable on Hexagon NPU or Adreno GPU fallback."
+                description = "Llama 3.2 1B GGUF profile with GPU/CPU execution."
             )
             registerModel(llamaPreset)
+
+            val phiPath = File(modelsDir, "phi3_5_mini_qairt/model.bin").absolutePath
+            val phiExists = File(phiPath).exists() && File(phiPath).length() > 0
 
             val phiPreset = ModelDescriptor(
                 id = "phi3_5_mini_qairt",
@@ -205,18 +254,20 @@ class LocalModelRepository(
                 runtime = RuntimeType.QAIRT,
                 preferredCompute = ComputeUnit.NPU,
                 fallbackCompute = ComputeUnit.CPU,
-                modelPath = File(modelsDir, "phi3_5_mini_qairt/model.bin").absolutePath,
+                modelPath = phiPath,
                 parameterCount = "3.8B",
                 contextLength = 4096,
                 fileSizeBytes = 2_800_000_000L,
                 isBundled = false,
-                isReady = true,
+                lifecycleState = if (phiExists) com.example.angi.domain.models.ModelLifecycleState.AVAILABLE else com.example.angi.domain.models.ModelLifecycleState.MISSING,
                 modality = Modality.TEXT_ONLY,
-                description = "High reasoning capacity NPU bundle for SM8550 / Snapdragon 8 Gen 2."
+                description = "Qualcomm AI Engine Direct bundle profile for SM8550 / Snapdragon 8 Gen 2."
             )
             registerModel(phiPreset)
 
-            setActiveModel(qairtPreset.id)
+            if (qairtPreset.isReady) {
+                setActiveModel(qairtPreset.id)
+            }
         }
     }
 

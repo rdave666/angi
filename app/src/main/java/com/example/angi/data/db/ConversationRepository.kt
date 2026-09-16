@@ -34,7 +34,10 @@ class RoomConversationRepository(
     }
 
     override suspend fun getOrCreateCurrentConversation(): Conversation {
-        // Will check if one exists or create a default
+        val mostRecent = dao.getMostRecentConversation()
+        if (mostRecent != null) {
+            return mostRecent.toDomain()
+        }
         val newConv = Conversation(
             id = UUID.randomUUID().toString(),
             title = "Snapdragon Local Session",

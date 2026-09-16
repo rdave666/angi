@@ -51,11 +51,8 @@ class AngiApp : Application() {
         super.onCreate()
         instance = this
 
-        runCatching {
-            val devNull = android.system.Os.open("/dev/null", android.system.OsConstants.O_WRONLY, 0)
-            android.system.Os.dup2(devNull, 2)
-            android.system.Os.close(devNull)
-        }
+        // Requirement A3: Do not suppress native stderr.
+        // Native logging from JNI, llama.cpp, and QAIRT must remain observable.
 
         database = Room.databaseBuilder(
             applicationContext,

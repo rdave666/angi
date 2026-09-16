@@ -30,6 +30,10 @@ class ConversationService(
     private val scope: CoroutineScope = CoroutineScope(Dispatchers.Default)
 ) {
 
+    companion object {
+        const val MAX_TOOL_STEPS = 8
+    }
+
     private val _generationState = MutableStateFlow<GenerationState>(GenerationState.Idle)
     val generationState: StateFlow<GenerationState> = _generationState.asStateFlow()
 
@@ -38,9 +42,13 @@ class ConversationService(
     fun sendUserMessage(
         conversationId: String,
         userText: String,
-        currentMessages: List<Message>
+        currentMessages: List<Message>,
+        toolConfirmed: Boolean = false
     ) {
-        if (_generationState.value !is GenerationState.Idle && _generationState.value !is GenerationState.Failed) {
+        if (_generationState.value !is GenerationState.Idle &&
+            _generationState.value !is GenerationState.Failed &&
+            _generationState.value !is GenerationState.AwaitingConfirmation
+        ) {
             return
         }
 
@@ -58,122 +66,105 @@ class ConversationService(
                 return@launch
             }
 
-            _generationState.value = GenerationState.Preparing("Preparing model context on ${model.preferredCompute.name}...")
-
             val settings = settingsRepository.settings.value
             val availableTools = toolRegistry.getAllDefinitions().filter { settingsRepository.isToolEnabled(it.name) }
 
-            val updatedHistory = currentMessages + userMessage
-            val prompt = promptBuilder.build(
-                messages = updatedHistory,
-                availableTools = availableTools,
-                model = model,
-                systemInstruction = settings.systemPrompt
-            )
+            var currentHistory = currentMessages + userMessage
+            var toolStepCount = 0
 
-            val request = GenerationRequest(
-                prompt = prompt,
-                maxTokens = settings.maxTokens,
-                temperature = settings.temperature,
-                topP = settings.topP
-            )
+            while (toolStepCount < MAX_TOOL_STEPS) {
+                _generationState.value = GenerationState.Preparing("Preparing model context on ${model.preferredCompute.name}...")
 
-            val assistantMsgId = UUID.randomUUID().toString()
-            var streamedText = StringBuilder()
-            var detectedToolCall: ToolCall? = null
+                val prompt = promptBuilder.build(
+                    messages = currentHistory,
+                    availableTools = availableTools,
+                    model = model,
+                    systemInstruction = settings.systemPrompt
+                )
 
-            _generationState.value = GenerationState.Generating("", 0)
+                val request = GenerationRequest(
+                    prompt = prompt,
+                    maxTokens = settings.maxTokens,
+                    temperature = settings.temperature,
+                    topP = settings.topP
+                )
 
-            inferenceEngine.generate(request).collect { event ->
-                when (event) {
-                    is GenerationEvent.Token -> {
-                        streamedText.append(event.text)
-                        _generationState.value = GenerationState.Generating(streamedText.toString(), streamedText.length)
-                    }
-                    is GenerationEvent.ToolRequest -> {
-                        detectedToolCall = event.toolCall
-                    }
-                    is GenerationEvent.Metrics -> {
-                        val assistantMsg = Message.Assistant(
-                            id = assistantMsgId,
-                            conversationId = conversationId,
-                            text = streamedText.toString(),
-                            metrics = event.stats,
-                            toolCall = detectedToolCall
-                        )
-                        conversationRepository.saveMessage(assistantMsg)
-                    }
-                    is GenerationEvent.Error -> {
-                        _generationState.value = GenerationState.Failed(event.userMessage)
-                    }
-                    is GenerationEvent.Completed -> {
-                        if (detectedToolCall != null) {
-                            // Execute tool and continue generation turn
-                            val toolCall = detectedToolCall!!
-                            _generationState.value = GenerationState.ExecutingTool(toolCall.name)
-                            val toolResult = toolExecutor.execute(toolCall.name, toolCall.arguments)
-                            val toolMessage = Message.Tool(
-                                id = UUID.randomUUID().toString(),
-                                conversationId = conversationId,
-                                result = toolResult
-                            )
-                            conversationRepository.saveMessage(toolMessage)
+                val assistantMsgId = UUID.randomUUID().toString()
+                val streamedText = StringBuilder()
+                var detectedToolCall: ToolCall? = null
+                var generationFailed = false
+                var lastMetrics: com.example.angi.domain.inference.GenerationMetrics? = null
 
-                            // Follow-up generation with tool result
-                            val historyWithTool = updatedHistory + Message.Assistant(
-                                id = assistantMsgId,
-                                conversationId = conversationId,
-                                text = streamedText.toString(),
-                                toolCall = toolCall
-                            ) + toolMessage
+                _generationState.value = GenerationState.Generating("", 0)
 
-                            val followupPrompt = promptBuilder.build(
-                                messages = historyWithTool,
-                                availableTools = availableTools,
-                                model = model,
-                                systemInstruction = settings.systemPrompt
-                            )
-
-                            val secondAssistantId = UUID.randomUUID().toString()
-                            val secondStreamedText = StringBuilder()
-
-                            inferenceEngine.generate(
-                                GenerationRequest(
-                                    prompt = followupPrompt,
-                                    maxTokens = settings.maxTokens,
-                                    temperature = settings.temperature,
-                                    topP = settings.topP
-                                )
-                            ).collect { secondEvent ->
-                                when (secondEvent) {
-                                    is GenerationEvent.Token -> {
-                                        secondStreamedText.append(secondEvent.text)
-                                        _generationState.value = GenerationState.Generating(secondStreamedText.toString(), secondStreamedText.length)
-                                    }
-                                    is GenerationEvent.Metrics -> {
-                                        val finalMsg = Message.Assistant(
-                                            id = secondAssistantId,
-                                            conversationId = conversationId,
-                                            text = secondStreamedText.toString(),
-                                            metrics = secondEvent.stats
-                                        )
-                                        conversationRepository.saveMessage(finalMsg)
-                                    }
-                                    is GenerationEvent.Completed -> {
-                                        _generationState.value = GenerationState.Idle
-                                    }
-                                    is GenerationEvent.Error -> {
-                                        _generationState.value = GenerationState.Failed(secondEvent.userMessage)
-                                    }
-                                    else -> {}
-                                }
-                            }
-                        } else {
-                            _generationState.value = GenerationState.Idle
+                inferenceEngine.generate(request).collect { event ->
+                    when (event) {
+                        is GenerationEvent.Token -> {
+                            streamedText.append(event.text)
+                            _generationState.value = GenerationState.Generating(streamedText.toString(), streamedText.length)
+                        }
+                        is GenerationEvent.ToolRequest -> {
+                            detectedToolCall = event.toolCall
+                        }
+                        is GenerationEvent.Metrics -> {
+                            lastMetrics = event.stats
+                        }
+                        is GenerationEvent.Error -> {
+                            generationFailed = true
+                            _generationState.value = GenerationState.Failed(event.userMessage)
+                        }
+                        is GenerationEvent.Completed -> {
+                            // Single completion
                         }
                     }
                 }
+
+                if (generationFailed) {
+                    return@launch
+                }
+
+                val assistantMsg = Message.Assistant(
+                    id = assistantMsgId,
+                    conversationId = conversationId,
+                    text = streamedText.toString(),
+                    metrics = lastMetrics,
+                    toolCall = detectedToolCall
+                )
+                conversationRepository.saveMessage(assistantMsg)
+                currentHistory = currentHistory + assistantMsg
+
+                val toolCall = detectedToolCall
+                if (toolCall == null) {
+                    // Turn finished cleanly without tool request
+                    _generationState.value = GenerationState.Idle
+                    return@launch
+                }
+
+                // Tool requested: execute step in bounded loop
+                toolStepCount++
+                _generationState.value = GenerationState.ExecutingTool(toolCall.name)
+
+                val toolResult = toolExecutor.execute(
+                    toolName = toolCall.name,
+                    arguments = toolCall.arguments,
+                    confirmed = toolConfirmed
+                )
+                val toolMessage = Message.Tool(
+                    id = UUID.randomUUID().toString(),
+                    conversationId = conversationId,
+                    result = toolResult
+                )
+                conversationRepository.saveMessage(toolMessage)
+                currentHistory = currentHistory + toolMessage
+
+                if (toolResult.requiresConfirmation) {
+                    _generationState.value = GenerationState.AwaitingConfirmation(toolCall, toolCall.name)
+                    return@launch
+                }
             }
+
+            // Completed maximum allowed tool steps
+            _generationState.value = GenerationState.Idle
         }
     }
 
