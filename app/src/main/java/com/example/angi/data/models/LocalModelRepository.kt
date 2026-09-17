@@ -3,6 +3,7 @@ package com.example.angi.data.models
 import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
+import android.util.Log
 import com.example.angi.data.db.ModelDao
 import com.example.angi.data.db.ModelEntity
 import com.example.angi.domain.models.ComputeUnit
@@ -10,6 +11,7 @@ import com.example.angi.domain.models.Modality
 import com.example.angi.domain.models.ModelDescriptor
 import com.example.angi.domain.models.ModelFormat
 import com.example.angi.domain.models.RuntimeType
+import com.geniex.sdk.ModelManagerWrapper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -46,6 +48,9 @@ class LocalModelRepository(
 
     private val modelsDir: File
         get() = File(context.filesDir, "models").apply { if (!exists()) mkdirs() }
+
+    private val geniexStoreDir: File
+        get() = File(context.filesDir, "geniex_models").apply { if (!exists()) mkdirs() }
 
     private val prefs = context.getSharedPreferences("angi_model_prefs", Context.MODE_PRIVATE)
 
@@ -176,6 +181,10 @@ class LocalModelRepository(
                 if (file.exists()) {
                     file.parentFile?.deleteRecursively()
                 }
+                // Also notify ModelManagerWrapper if model was tracked there
+                runCatching {
+                    ModelManagerWrapper.remove(model.name)
+                }
                 dao.deleteModelById(id)
             }
         }
@@ -194,7 +203,13 @@ class LocalModelRepository(
         prefs.edit().putString("active_model_id", id).apply()
     }
 
-    override suspend fun initializeBundledOrPresetModels() = withContext(Dispatchers.IO) {
+    override suspend fun initializeBundledOrPresetModels(): Unit = withContext(Dispatchers.IO) {
+        runCatching {
+            ModelManagerWrapper.init(geniexStoreDir.absolutePath)
+        }.onFailure {
+            Log.w("LocalModelRepository", "ModelManagerWrapper native init deferred: ${it.message}")
+        }
+
         // Register default model profiles matching target device hardware (Snapdragon 8 Gen 2 / SM8550)
         // Check actual file presence: if model file does not exist, mark lifecycleState = MISSING and isReady = false
         val existing = dao.getModelById("qwen2_5_1_5b_qairt")
@@ -268,6 +283,53 @@ class LocalModelRepository(
             if (qairtPreset.isReady) {
                 setActiveModel(qairtPreset.id)
             }
+        }
+
+        // Wire ModelManagerWrapper into local model repository so GenieX models appear alongside imported models
+        syncGenieXModels()
+        Unit
+    }
+
+    suspend fun syncGenieXModels() = withContext(Dispatchers.IO) {
+        runCatching {
+            val geniexModelNames = ModelManagerWrapper.list()
+            for (name in geniexModelNames) {
+                val paths = ModelManagerWrapper.getPaths(name) ?: continue
+                val modelPath = paths.model_path ?: continue
+                val modelFile = File(modelPath)
+                val exists = modelFile.exists() && modelFile.length() > 0
+                val isGguf = modelPath.endsWith(".gguf", ignoreCase = true)
+                val format = if (isGguf) ModelFormat.GGUF else ModelFormat.QAIRT_BUNDLE
+                val runtime = if (isGguf) RuntimeType.LLAMA_CPP else RuntimeType.QAIRT
+                val preferredCompute = if (isGguf) ComputeUnit.GPU else ComputeUnit.NPU
+
+                val family = when {
+                    name.contains("qwen", ignoreCase = true) -> "Qwen"
+                    name.contains("llama", ignoreCase = true) -> "Llama"
+                    name.contains("phi", ignoreCase = true) -> "Phi"
+                    else -> "Local LLM"
+                }
+
+                val descriptor = ModelDescriptor(
+                    id = "geniex_${name.lowercase().replace(" ", "_")}",
+                    name = name,
+                    family = family,
+                    format = format,
+                    runtime = runtime,
+                    preferredCompute = preferredCompute,
+                    fallbackCompute = ComputeUnit.CPU,
+                    modelPath = modelPath,
+                    tokenizerPath = paths.tokenizer_path ?: "",
+                    fileSizeBytes = if (exists) modelFile.length() else 0L,
+                    isBundled = false,
+                    lifecycleState = if (exists) com.example.angi.domain.models.ModelLifecycleState.AVAILABLE else com.example.angi.domain.models.ModelLifecycleState.MISSING,
+                    modality = Modality.TEXT_ONLY,
+                    description = "Managed by Qualcomm GenieX ModelManager (${paths.runtime_id})"
+                )
+                registerModel(descriptor)
+            }
+        }.onFailure {
+            Log.w("LocalModelRepository", "Failed to sync GenieX models: ${it.message}")
         }
     }
 

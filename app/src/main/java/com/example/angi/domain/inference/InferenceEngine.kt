@@ -18,6 +18,12 @@ interface InferenceEngine {
     suspend fun unload()
 
     fun runtimeInfo(): RuntimeInfo
+
+    suspend fun applyChatTemplate(
+        messages: List<com.example.angi.domain.conversation.Message>,
+        availableTools: List<com.example.angi.domain.tools.ToolDefinition>,
+        systemInstruction: String?
+    ): Result<String> = Result.failure(UnsupportedOperationException("Chat template not implemented"))
 }
 
 data class GenerationRequest(

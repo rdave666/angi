@@ -15,6 +15,7 @@ import com.example.angi.domain.tools.ToolCall
 import com.geniex.sdk.GenieXSdk
 import com.geniex.sdk.LlmWrapper
 import com.geniex.sdk.ModelManagerWrapper
+import com.geniex.sdk.bean.ChatMessage
 import com.geniex.sdk.bean.ComputeUnitValue
 import com.geniex.sdk.bean.GenerationConfig
 import com.geniex.sdk.bean.LlmCreateInput
@@ -108,11 +109,12 @@ class GenieXInferenceEngine(
                 when (model.runtime) {
                     RuntimeType.LLAMA_CPP -> {
                         runtimeIdStr = RuntimeIdValue.LLAMA_CPP.value ?: "llama_cpp"
+                        val totalLayers = determineTotalModelLayers(model)
                         val nGpuLayers = when (model.preferredCompute) {
                             ComputeUnit.CPU -> 0
-                            ComputeUnit.GPU -> 99
-                            ComputeUnit.NPU -> 99 // Offload layers to HTP/NPU accelerator
-                            ComputeUnit.HYBRID -> 50
+                            ComputeUnit.GPU -> totalLayers
+                            ComputeUnit.NPU -> totalLayers
+                            ComputeUnit.HYBRID -> (totalLayers + 1) / 2
                         }
                         computeUnitStr = when (model.preferredCompute) {
                             ComputeUnit.NPU -> ComputeUnitValue.NPU.value ?: "npu"
@@ -311,6 +313,193 @@ class GenieXInferenceEngine(
             runtimeState = runtimeState,
             lastError = lastError
         )
+    }
+
+    override suspend fun applyChatTemplate(
+        messages: List<com.example.angi.domain.conversation.Message>,
+        availableTools: List<com.example.angi.domain.tools.ToolDefinition>,
+        systemInstruction: String?
+    ): Result<String> = withContext(Dispatchers.Default) {
+        runCatching {
+            val llm = activeLlm ?: throw IllegalStateException("Model not loaded in GenieXInferenceEngine")
+            val effectiveSystem = buildEffectiveSystemPrompt(availableTools, systemInstruction)
+            val chatMessages = ArrayList<ChatMessage>()
+            chatMessages.add(ChatMessage("system", effectiveSystem))
+
+            for (msg in messages) {
+                when (msg) {
+                    is com.example.angi.domain.conversation.Message.User -> {
+                        chatMessages.add(ChatMessage("user", msg.text))
+                    }
+                    is com.example.angi.domain.conversation.Message.Assistant -> {
+                        val content = buildString {
+                            if (msg.toolCall != null) {
+                                append("```tool_code\n")
+                                val argsMap = msg.toolCall.arguments.entries.joinToString(prefix = "{", postfix = "}") { entry ->
+                                    "\"" + entry.key + "\": \"" + entry.value + "\""
+                                }
+                                append("{\"tool\": \"").append(msg.toolCall.name).append("\", \"arguments\": ").append(argsMap).append("}\n```\n")
+                            }
+                            if (msg.text.isNotEmpty()) {
+                                append(msg.text)
+                            }
+                        }
+                        chatMessages.add(ChatMessage("assistant", content))
+                    }
+                    is com.example.angi.domain.conversation.Message.Tool -> {
+                        val content = buildString {
+                            append("Tool result for ").append(msg.result.toolName).append(":\n").append(msg.result.output)
+                            if (msg.result.error != null) {
+                                append("\nError: ").append(msg.result.error)
+                            }
+                        }
+                        chatMessages.add(ChatMessage("tool", content))
+                    }
+                }
+            }
+
+            val templateResult = llm.applyChatTemplate(
+                messages = chatMessages.toTypedArray(),
+                tools = "",
+                addGenerationPrompt = true,
+                enableThinking = false
+            )
+            val output = templateResult.getOrThrow()
+            output.formattedText
+        }
+    }
+
+    private fun buildEffectiveSystemPrompt(
+        availableTools: List<com.example.angi.domain.tools.ToolDefinition>,
+        systemInstruction: String?
+    ): String {
+        val sb = StringBuilder()
+        sb.append("You are ANGI, an advanced AI running on-device on Qualcomm Snapdragon hardware.")
+        if (!systemInstruction.isNullOrBlank()) {
+            sb.append("\n").append(systemInstruction)
+        }
+        if (availableTools.isNotEmpty()) {
+            sb.append("\n\nYou have access to the following tools:\n")
+            for (tool in availableTools) {
+                sb.append("- ").append(tool.name).append(": ").append(tool.description).append("\n")
+                if (tool.parameters.isNotEmpty()) {
+                    sb.append("  Arguments: ")
+                    val paramList = tool.parameters.map { (key, param) ->
+                        "$key (${param.type}): ${param.description}"
+                    }.joinToString(", ")
+                    sb.append(paramList).append("\n")
+                }
+            }
+            sb.append("\nTo use a tool, respond with a JSON block in this exact format:\n")
+            sb.append("```tool_code\n{\"tool\": \"tool_name\", \"arguments\": {\"param\": \"value\"}}\n```\n")
+        }
+        return sb.toString()
+    }
+
+    private fun determineTotalModelLayers(model: ModelDescriptor): Int {
+        runCatching {
+            val file = File(model.modelPath)
+            if (file.exists() && file.length() > 64) {
+                val blockCount = readGgufBlockCount(file)
+                if (blockCount > 0) return blockCount
+            }
+        }
+
+        val fam = model.family.lowercase()
+        val params = model.parameterCount.lowercase()
+        return when {
+            fam.contains("phi") -> 32
+            fam.contains("qwen") -> {
+                if (params.contains("0.5")) 24
+                else if (params.contains("1.5") || params.contains("1b")) 28
+                else if (params.contains("3") || params.contains("7")) 28
+                else 28
+            }
+            fam.contains("llama") -> {
+                if (params.contains("1b") || params.contains("1.")) 16
+                else if (params.contains("3b") || params.contains("3.")) 28
+                else if (params.contains("7b") || params.contains("8b")) 32
+                else 28
+            }
+            params.contains("1b") || params.contains("1.") -> 16
+            params.contains("3b") || params.contains("3.") -> 28
+            params.contains("7b") || params.contains("8b") -> 32
+            else -> 28
+        }
+    }
+
+    private fun readGgufBlockCount(file: File): Int {
+        return runCatching {
+            file.inputStream().use { input ->
+                val header = ByteArray(4)
+                if (input.read(header) != 4) return@use 0
+                if (header[0] != 0x47.toByte() || header[1] != 0x47.toByte() || header[2] != 0x55.toByte() || header[3] != 0x46.toByte()) {
+                    return@use 0
+                }
+                // Skip version (4 bytes), tensor_count (8 bytes)
+                val skipBytes = ByteArray(12)
+                if (input.read(skipBytes) != 12) return@use 0
+
+                // Read kv_count (uint64 little endian, treat as long)
+                val kvCountBytes = ByteArray(8)
+                if (input.read(kvCountBytes) != 8) return@use 0
+                var kvCount = 0L
+                for (i in 0..7) {
+                    kvCount = kvCount or ((kvCountBytes[i].toLong() and 0xFFL) shl (i * 8))
+                }
+
+                val maxKvToScan = minOf(kvCount, 128L)
+                for (k in 0 until maxKvToScan) {
+                    val keyLenBytes = ByteArray(8)
+                    if (input.read(keyLenBytes) != 8) break
+                    var keyLen = 0L
+                    for (i in 0..7) {
+                        keyLen = keyLen or ((keyLenBytes[i].toLong() and 0xFFL) shl (i * 8))
+                    }
+                    if (keyLen <= 0 || keyLen > 512) break
+                    val keyBytes = ByteArray(keyLen.toInt())
+                    if (input.read(keyBytes) != keyLen.toInt()) break
+                    val key = String(keyBytes, Charsets.US_ASCII)
+
+                    val typeBytes = ByteArray(4)
+                    if (input.read(typeBytes) != 4) break
+                    val valueType = (typeBytes[0].toInt() and 0xFF) or
+                        ((typeBytes[1].toInt() and 0xFF) shl 8) or
+                        ((typeBytes[2].toInt() and 0xFF) shl 16) or
+                        ((typeBytes[3].toInt() and 0xFF) shl 24)
+
+                    if (key.endsWith(".block_count") && valueType == 4) { // GGUF_TYPE_UINT32
+                        val valBytes = ByteArray(4)
+                        if (input.read(valBytes) == 4) {
+                            val count = (valBytes[0].toInt() and 0xFF) or
+                                ((valBytes[1].toInt() and 0xFF) shl 8) or
+                                ((valBytes[2].toInt() and 0xFF) shl 16) or
+                                ((valBytes[3].toInt() and 0xFF) shl 24)
+                            return@use count
+                        }
+                    }
+
+                    // Skip value
+                    when (valueType) {
+                        0, 1, 7 -> input.skip(1)
+                        2, 3 -> input.skip(2)
+                        4, 5, 6 -> input.skip(4)
+                        10, 11, 12 -> input.skip(8)
+                        8 -> { // String
+                            val strLenBytes = ByteArray(8)
+                            if (input.read(strLenBytes) != 8) break
+                            var strLen = 0L
+                            for (i in 0..7) {
+                                strLen = strLen or ((strLenBytes[i].toLong() and 0xFFL) shl (i * 8))
+                            }
+                            if (strLen > 0) input.skip(strLen)
+                        }
+                        else -> break // Array or unknown, stop scan
+                    }
+                }
+                0
+            }
+        }.getOrDefault(0)
     }
 
     private fun checkForToolCall(text: String): ToolCall? {

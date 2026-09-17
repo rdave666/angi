@@ -75,12 +75,18 @@ class ConversationService(
             while (toolStepCount < MAX_TOOL_STEPS) {
                 _generationState.value = GenerationState.Preparing("Preparing model context on ${model.preferredCompute.name}...")
 
-                val prompt = promptBuilder.build(
+                val prompt = inferenceEngine.applyChatTemplate(
                     messages = currentHistory,
                     availableTools = availableTools,
-                    model = model,
                     systemInstruction = settings.systemPrompt
-                )
+                ).getOrElse {
+                    promptBuilder.build(
+                        messages = currentHistory,
+                        availableTools = availableTools,
+                        model = model,
+                        systemInstruction = settings.systemPrompt
+                    )
+                }
 
                 val request = GenerationRequest(
                     prompt = prompt,
