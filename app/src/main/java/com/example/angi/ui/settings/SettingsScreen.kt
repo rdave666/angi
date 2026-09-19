@@ -334,7 +334,7 @@ fun SettingsScreen(
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "Capability Policy & Network",
+                                text = "Capability Policy & Permissions",
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 15.sp,
                                 color = AngiTextPrimary
@@ -357,6 +357,96 @@ fun SettingsScreen(
                             Switch(
                                 checked = settings.allowUnconfirmedNetworkTools,
                                 onCheckedChange = { viewModel.updateSettings(settings.copy(allowUnconfirmedNetworkTools = it)) },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = AngiDarkBackground,
+                                    checkedTrackColor = AngiPrimary
+                                )
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Linux Workspace Tools", fontSize = 13.sp, color = AngiTextPrimary)
+                                Text(
+                                    "Enable linux_read_file and linux_write_file in /workspace/**",
+                                    fontSize = 11.sp,
+                                    color = AngiTextSecondary
+                                )
+                            }
+                            Switch(
+                                checked = settings.isLinuxReadFileEnabled && settings.isLinuxWriteFileEnabled,
+                                onCheckedChange = {
+                                    viewModel.updateSettings(
+                                        settings.copy(
+                                            isLinuxReadFileEnabled = it,
+                                            isLinuxWriteFileEnabled = it,
+                                            isLinuxListDirectoryEnabled = it
+                                        )
+                                    )
+                                },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = AngiDarkBackground,
+                                    checkedTrackColor = AngiPrimary
+                                )
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Android Shared File Access", fontSize = 13.sp, color = AngiTextPrimary)
+                                Text(
+                                    "Enable android_read_file and android_write_file via SAF",
+                                    fontSize = 11.sp,
+                                    color = AngiTextSecondary
+                                )
+                            }
+                            Switch(
+                                checked = settings.isAndroidReadFileEnabled && settings.isAndroidWriteFileEnabled,
+                                onCheckedChange = {
+                                    viewModel.updateSettings(
+                                        settings.copy(
+                                            isAndroidReadFileEnabled = it,
+                                            isAndroidWriteFileEnabled = it
+                                        )
+                                    )
+                                },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = AngiDarkBackground,
+                                    checkedTrackColor = AngiPrimary
+                                )
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Auto-execute Android SAF Writes", fontSize = 13.sp, color = AngiTextPrimary)
+                                Text(
+                                    "Allow android_write_file without confirmation prompt",
+                                    fontSize = 11.sp,
+                                    color = AngiTextSecondary
+                                )
+                            }
+                            Switch(
+                                checked = settings.allowUnconfirmedAndroidWrite,
+                                onCheckedChange = { viewModel.updateSettings(settings.copy(allowUnconfirmedAndroidWrite = it)) },
                                 colors = SwitchDefaults.colors(
                                     checkedThumbColor = AngiDarkBackground,
                                     checkedTrackColor = AngiPrimary

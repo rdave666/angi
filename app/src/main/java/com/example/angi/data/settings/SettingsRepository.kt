@@ -21,7 +21,14 @@ data class AngiSettings(
     val isShareEnabled: Boolean = true,
     val isDeviceInfoEnabled: Boolean = true,
     val isOpenUrlEnabled: Boolean = true,
-    val allowUnconfirmedNetworkTools: Boolean = false
+    val allowUnconfirmedNetworkTools: Boolean = false,
+    // Checkpoint B: Filesystem & Shared Storage Tool Policies
+    val isLinuxReadFileEnabled: Boolean = true,
+    val isLinuxWriteFileEnabled: Boolean = true,
+    val isLinuxListDirectoryEnabled: Boolean = true,
+    val isAndroidReadFileEnabled: Boolean = true,
+    val isAndroidWriteFileEnabled: Boolean = true,
+    val allowUnconfirmedAndroidWrite: Boolean = false
 )
 
 class SettingsRepository(
@@ -50,7 +57,13 @@ class SettingsRepository(
             isShareEnabled = prefs.getBoolean("tool_share_text", true),
             isDeviceInfoEnabled = prefs.getBoolean("tool_device_info", true),
             isOpenUrlEnabled = prefs.getBoolean("tool_open_url", true),
-            allowUnconfirmedNetworkTools = prefs.getBoolean("tool_auto_network", false)
+            allowUnconfirmedNetworkTools = prefs.getBoolean("tool_auto_network", false),
+            isLinuxReadFileEnabled = prefs.getBoolean("tool_linux_read", true),
+            isLinuxWriteFileEnabled = prefs.getBoolean("tool_linux_write", true),
+            isLinuxListDirectoryEnabled = prefs.getBoolean("tool_linux_list", true),
+            isAndroidReadFileEnabled = prefs.getBoolean("tool_android_read", true),
+            isAndroidWriteFileEnabled = prefs.getBoolean("tool_android_write", true),
+            allowUnconfirmedAndroidWrite = prefs.getBoolean("tool_auto_android_write", false)
         )
     }
 
@@ -68,6 +81,12 @@ class SettingsRepository(
             .putBoolean("tool_device_info", newSettings.isDeviceInfoEnabled)
             .putBoolean("tool_open_url", newSettings.isOpenUrlEnabled)
             .putBoolean("tool_auto_network", newSettings.allowUnconfirmedNetworkTools)
+            .putBoolean("tool_linux_read", newSettings.isLinuxReadFileEnabled)
+            .putBoolean("tool_linux_write", newSettings.isLinuxWriteFileEnabled)
+            .putBoolean("tool_linux_list", newSettings.isLinuxListDirectoryEnabled)
+            .putBoolean("tool_android_read", newSettings.isAndroidReadFileEnabled)
+            .putBoolean("tool_android_write", newSettings.isAndroidWriteFileEnabled)
+            .putBoolean("tool_auto_android_write", newSettings.allowUnconfirmedAndroidWrite)
             .apply()
         _settings.value = newSettings
     }
@@ -79,6 +98,12 @@ class SettingsRepository(
             "share_text" -> _settings.value.isShareEnabled
             "device_info" -> _settings.value.isDeviceInfoEnabled
             "open_url" -> _settings.value.isOpenUrlEnabled
+            "linux_read_file" -> _settings.value.isLinuxReadFileEnabled
+            "linux_write_file" -> _settings.value.isLinuxWriteFileEnabled
+            "linux_list_directory" -> _settings.value.isLinuxListDirectoryEnabled
+            "android_read_file" -> _settings.value.isAndroidReadFileEnabled
+            "android_write_file" -> _settings.value.isAndroidWriteFileEnabled
+            "android_list_directory" -> true
             else -> false
         }
     }
@@ -89,6 +114,12 @@ class SettingsRepository(
             "share_text" -> true
             "device_info" -> true
             "open_url" -> false // Opening external URLs should confirm
+            "linux_read_file" -> true // Auto allowed inside /workspace
+            "linux_write_file" -> true // Auto allowed inside /workspace
+            "linux_list_directory" -> true // Auto allowed inside /workspace
+            "android_read_file" -> true // Allowed for registered user grants
+            "android_write_file" -> _settings.value.allowUnconfirmedAndroidWrite // User policy explicitly allows or prompts
+            "android_list_directory" -> true
             else -> false
         }
     }
@@ -100,6 +131,11 @@ class SettingsRepository(
             "share_text" -> current.copy(isShareEnabled = enabled)
             "device_info" -> current.copy(isDeviceInfoEnabled = enabled)
             "open_url" -> current.copy(isOpenUrlEnabled = enabled)
+            "linux_read_file" -> current.copy(isLinuxReadFileEnabled = enabled)
+            "linux_write_file" -> current.copy(isLinuxWriteFileEnabled = enabled)
+            "linux_list_directory" -> current.copy(isLinuxListDirectoryEnabled = enabled)
+            "android_read_file" -> current.copy(isAndroidReadFileEnabled = enabled)
+            "android_write_file" -> current.copy(isAndroidWriteFileEnabled = enabled)
             else -> current
         }
         updateSettings(updated)

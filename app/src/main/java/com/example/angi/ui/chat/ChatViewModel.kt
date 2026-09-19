@@ -3,6 +3,7 @@ package com.example.angi.ui.chat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.AngiApp
+import com.example.angi.data.db.ConversationRepository
 import com.example.angi.domain.conversation.Conversation
 import com.example.angi.domain.conversation.GenerationState
 import com.example.angi.domain.conversation.Message
