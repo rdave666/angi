@@ -45,13 +45,23 @@ class ModelViewModel : ViewModel() {
     fun selectActiveModel(model: ModelDescriptor) {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true, statusMessage = "Loading ${model.name}...")
-            modelRepo.setActiveModel(model.id)
             val result = inferenceEngine.loadModel(model)
-            _uiState.value = _uiState.value.copy(
-                isLoading = false,
-                activeModel = model,
-                statusMessage = if (result.isSuccess) "Model loaded successfully on ${model.preferredCompute.name}" else "Model load notice: ${result.exceptionOrNull()?.message}"
-            )
+            if (result.isSuccess) {
+                modelRepo.setActiveModel(model.id)
+                _uiState.value = _uiState.value.copy(
+                    isLoading = false,
+                    activeModel = model,
+                    statusMessage = "Model loaded successfully on ${model.preferredCompute.name}",
+                    errorMessage = null
+                )
+            } else {
+                val errorMsg = result.exceptionOrNull()?.message ?: "Unknown model load error"
+                _uiState.value = _uiState.value.copy(
+                    isLoading = false,
+                    statusMessage = null,
+                    errorMessage = "Failed to load model: $errorMsg"
+                )
+            }
         }
     }
 
@@ -61,12 +71,22 @@ class ModelViewModel : ViewModel() {
             val result = modelRepo.importModelFromUri(uri)
             if (result.isSuccess) {
                 val imported = result.getOrNull()!!
-                inferenceEngine.loadModel(imported)
-                _uiState.value = _uiState.value.copy(
-                    isLoading = false,
-                    activeModel = imported,
-                    statusMessage = "Successfully imported ${imported.name} (${imported.format})"
-                )
+                val loadResult = inferenceEngine.loadModel(imported)
+                if (loadResult.isSuccess) {
+                    modelRepo.setActiveModel(imported.id)
+                    _uiState.value = _uiState.value.copy(
+                        isLoading = false,
+                        activeModel = imported,
+                        statusMessage = "Successfully imported and loaded ${imported.name} (${imported.format})",
+                        errorMessage = null
+                    )
+                } else {
+                    _uiState.value = _uiState.value.copy(
+                        isLoading = false,
+                        statusMessage = "Imported ${imported.name}, but failed to load: ${loadResult.exceptionOrNull()?.message}",
+                        errorMessage = null
+                    )
+                }
             } else {
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,

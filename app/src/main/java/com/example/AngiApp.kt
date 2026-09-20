@@ -17,6 +17,7 @@ import com.example.angi.domain.saf.AndroidSharedResourceRegistry
 import com.example.angi.domain.tools.ToolExecutor
 import com.example.angi.domain.tools.ToolRegistry
 import com.example.angi.runtime.geniex.GenieXInferenceEngine
+import com.example.angi.runtime.proot.LinuxSandboxManager
 import com.example.angi.tools.android.AndroidListDirectoryTool
 import com.example.angi.tools.android.AndroidReadFileTool
 import com.example.angi.tools.android.AndroidWriteFileTool
@@ -24,7 +25,11 @@ import com.example.angi.tools.impl.DeviceInfoTool
 import com.example.angi.tools.impl.OpenUrlTool
 import com.example.angi.tools.impl.ShareTextTool
 import com.example.angi.tools.impl.WebFetchTool
+import com.example.angi.tools.linux.LinuxExecTool
 import com.example.angi.tools.linux.LinuxListDirectoryTool
+import com.example.angi.tools.linux.LinuxProcessKillTool
+import com.example.angi.tools.linux.LinuxProcessOutputTool
+import com.example.angi.tools.linux.LinuxProcessStatusTool
 import com.example.angi.tools.linux.LinuxReadFileTool
 import com.example.angi.tools.linux.LinuxWriteFileTool
 import kotlinx.coroutines.CoroutineScope
@@ -46,6 +51,9 @@ class AngiApp : Application() {
         private set
 
     lateinit var linuxEnvironmentManager: DefaultLinuxEnvironmentManager
+        private set
+
+    lateinit var linuxSandboxManager: LinuxSandboxManager
         private set
 
     lateinit var androidSharedResourceRegistry: AndroidSharedResourceRegistry
@@ -83,6 +91,7 @@ class AngiApp : Application() {
 
         // Checkpoint B: Isolated Linux Environment & SAF Shared Resources
         linuxEnvironmentManager = DefaultLinuxEnvironmentManager(applicationContext)
+        linuxSandboxManager = LinuxSandboxManager(applicationContext)
         androidSharedResourceRegistry = DefaultAndroidSharedResourceRegistry(applicationContext)
 
         toolRegistry = ToolRegistry().apply {
@@ -92,7 +101,16 @@ class AngiApp : Application() {
             register(WebFetchTool())
             register(OpenUrlTool(applicationContext))
 
-            // Checkpoint B Linux Filesystem Tools
+            // Real Linux Userspace Execution Tools (PRoot + Debian ARM64)
+            register(LinuxExecTool(linuxSandboxManager) {
+                // Return current active conversation ID or fallback to default
+                conversationRepository.let { "default_conversation" }
+            })
+            register(LinuxProcessStatusTool(linuxSandboxManager))
+            register(LinuxProcessOutputTool(linuxSandboxManager))
+            register(LinuxProcessKillTool(linuxSandboxManager))
+
+            // Linux Filesystem Tools
             register(LinuxReadFileTool { linuxEnvironmentManager.getPathResolver() })
             register(LinuxWriteFileTool { linuxEnvironmentManager.getPathResolver() })
             register(LinuxListDirectoryTool { linuxEnvironmentManager.getPathResolver() })

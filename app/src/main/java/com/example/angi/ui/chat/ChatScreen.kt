@@ -245,8 +245,9 @@ fun ChatScreen(
             ) {
                 if (uiState.messages.isEmpty()) {
                     item {
+                        val isLoaded = uiState.runtimeInfo?.isModelLoaded == true
                         EmptyConversationPlaceholder(
-                            activeModelName = uiState.activeModel?.name ?: "Snapdragon 8 Gen 2 Model",
+                            activeModelName = if (isLoaded) uiState.activeModel?.name ?: "Snapdragon 8 Gen 2 Model" else null,
                             onChipClick = { prompt ->
                                 viewModel.onDraftChanged(prompt)
                                 viewModel.sendMessage()
@@ -585,7 +586,7 @@ fun ChatComposer(
 
 @Composable
 fun EmptyConversationPlaceholder(
-    activeModelName: String,
+    activeModelName: String?,
     onChipClick: (String) -> Unit
 ) {
     Column(
@@ -605,7 +606,7 @@ fun EmptyConversationPlaceholder(
             Icon(
                 imageVector = Icons.Default.Memory,
                 contentDescription = null,
-                tint = AngiPrimary,
+                tint = if (activeModelName != null) AngiPrimary else AngiTextTertiary,
                 modifier = Modifier.size(32.dp)
             )
         }
@@ -622,9 +623,9 @@ fun EmptyConversationPlaceholder(
         Spacer(modifier = Modifier.height(4.dp))
 
         Text(
-            text = "On-Device local inference active: $activeModelName",
+            text = if (activeModelName != null) "On-Device local inference active: $activeModelName" else "No model loaded. Import or select a model in Model Management.",
             fontSize = 12.sp,
-            color = AngiTextSecondary
+            color = if (activeModelName != null) AngiTextSecondary else AngiTextTertiary
         )
 
         Spacer(modifier = Modifier.height(24.dp))

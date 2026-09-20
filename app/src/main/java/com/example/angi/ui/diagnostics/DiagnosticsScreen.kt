@@ -85,10 +85,13 @@ fun DiagnosticsScreen(
                 val takeFlags: Int = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
                 context.contentResolver.takePersistableUriPermission(uri, takeFlags)
             } catch (_: Throwable) {}
+            val folderName = uri.lastPathSegment?.substringAfterLast(':')?.substringAfterLast('/') ?: "documents"
+            val sanitizedId = folderName.lowercase().replace(Regex("[^a-z0-9_]"), "_").take(24).ifEmpty { "folder" }
+            val uniqueResourceId = "${sanitizedId}_${System.currentTimeMillis() % 10000}"
             viewModel.registerSafResource(
                 treeUri = uri,
-                resourceId = "user_documents",
-                displayName = uri.lastPathSegment ?: "Granted Folder"
+                resourceId = uniqueResourceId,
+                displayName = folderName.ifEmpty { "Granted Folder" }
             )
         }
     }

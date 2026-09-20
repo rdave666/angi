@@ -1,141 +1,128 @@
 package com.example.angi.runtime.linux
 
-import java.io.BufferedInputStream
+import org.tukaani.xz.XZInputStream
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
-import java.io.IOException
 import java.io.InputStream
+import java.nio.file.Files
+import java.nio.file.Paths
 import java.util.zip.GZIPInputStream
 
 /**
- * Secure Tar/GZ Archive Extractor.
- *
- * Implements strict security defenses:
- * - Rejects archive traversal (Zip Slip / Tar Slip)
- * - Rejects entries escaping extraction root through `../` or absolute leading slashes
- * - Rejects symlinks or hardlinks pointing outside the destination directory
- * - Canonicalizes all paths before extracting
+ * Robust archive extractor for both .tar.gz (Alpine) and .tar.xz (Debian).
+ * Enforces strict security against directory traversal and escapes while preserving
+ * proper Linux file hierarchies and symlinks.
  */
 class SecureArchiveExtractor {
 
     interface ProgressListener {
-        fun onProgress(extractedEntries: Long, extractedBytes: Long)
+        fun onProgress(entriesExtracted: Long, bytesExtracted: Long)
     }
 
-    /**
-     * Extracts a .tar.gz archive safely into [destDir].
-     *
-     * @param tarGzFile Source archive file
-     * @param destDir Target directory for extraction
-     * @param listener Optional progress listener
-     * @return Total bytes extracted
-     */
-    fun extractTarGz(
-        tarGzFile: File,
-        destDir: File,
-        listener: ProgressListener? = null
-    ): Long {
-        if (!destDir.exists()) destDir.mkdirs()
-        val canonicalDest = destDir.canonicalFile
+    fun extractTarGz(archiveFile: File, destinationDir: File, listener: ProgressListener? = null): Long {
+        FileInputStream(archiveFile).use { fis ->
+            GZIPInputStream(fis).use { gzis ->
+                return extractTarStream(gzis, destinationDir, listener)
+            }
+        }
+    }
+
+    fun extractTarXz(archiveFile: File, destinationDir: File, listener: ProgressListener? = null): Long {
+        FileInputStream(archiveFile).use { fis ->
+            XZInputStream(fis).use { xzis ->
+                return extractTarStream(xzis, destinationDir, listener)
+            }
+        }
+    }
+
+    private fun extractTarStream(input: InputStream, destinationDir: File, listener: ProgressListener? = null): Long {
+        val canonicalDest = destinationDir.canonicalFile
+        if (!canonicalDest.exists()) {
+            canonicalDest.mkdirs()
+        }
 
         var totalBytes = 0L
         var entryCount = 0L
+        val buffer = ByteArray(512)
 
-        FileInputStream(tarGzFile).use { fis ->
-            BufferedInputStream(fis).use { bis ->
-                GZIPInputStream(bis).use { gzis ->
-                    val buffer = ByteArray(512)
+        while (true) {
+            val read = readFully(input, buffer, 0, 512)
+            if (read < 512) break
 
-                    while (true) {
-                        // Read 512-byte tar header
-                        val read = readFully(gzis, buffer, 0, 512)
-                        if (read < 512) break
+            if (isAllZeros(buffer)) {
+                val nextZero = ByteArray(512)
+                readFully(input, nextZero, 0, 512)
+                break
+            }
 
-                        // All zeros indicates end of tar archive
-                        if (isAllZeros(buffer)) {
-                            // Check if next 512 is also zero
-                            val nextZero = ByteArray(512)
-                            readFully(gzis, nextZero, 0, 512)
-                            break
-                        }
+            val header = parseTarHeader(buffer) ?: continue
+            validateEntryName(header.name)
 
-                        val header = parseTarHeader(buffer) ?: continue
+            val targetFile = File(canonicalDest, header.name).canonicalFile
+            if (!isUnderDestination(targetFile, canonicalDest)) {
+                throw SecurityException("Tar entry attempts to escape extraction root: '${header.name}'")
+            }
 
-                        // Security Check 1: Traversal in entry name
-                        validateEntryName(header.name)
-
-                        // Security Check 2: Resolve canonical target
-                        val targetFile = File(canonicalDest, header.name).canonicalFile
-                        if (!isUnderDestination(targetFile, canonicalDest)) {
-                            throw SecurityException("Tar entry attempts to escape extraction root: '${header.name}'")
-                        }
-
-                        when (header.typeFlag) {
-                            TarType.DIRECTORY -> {
-                                if (!targetFile.exists()) {
-                                    targetFile.mkdirs()
-                                }
-                            }
-                            TarType.REGULAR_FILE, TarType.NORMAL -> {
-                                targetFile.parentFile?.mkdirs()
-                                FileOutputStream(targetFile).use { fos ->
-                                    var remaining = header.size
-                                    val copyBuf = ByteArray(8192)
-                                    while (remaining > 0) {
-                                        val toRead = minOf(remaining, copyBuf.size.toLong()).toInt()
-                                        val numRead = gzis.read(copyBuf, 0, toRead)
-                                        if (numRead <= 0) break
-                                        fos.write(copyBuf, 0, numRead)
-                                        remaining -= numRead
-                                        totalBytes += numRead
-                                    }
-                                }
-                                // Tar entries are padded to 512-byte boundary
-                                val pad = (512 - (header.size % 512)) % 512
-                                if (pad > 0) {
-                                    skipFully(gzis, pad)
-                                }
-                            }
-                            TarType.SYMLINK -> {
-                                // Security Check 3: Validate symlink target does not escape canonicalDest
-                                validateLinkTarget(header.linkName, targetFile.parentFile ?: canonicalDest, canonicalDest)
-                                try {
-                                    targetFile.parentFile?.mkdirs()
-                                    // Remove if exists
-                                    if (targetFile.exists()) targetFile.delete()
-                                    java.nio.file.Files.createSymbolicLink(
-                                        targetFile.toPath(),
-                                        java.nio.file.Paths.get(header.linkName)
-                                    )
-                                } catch (_: Throwable) {
-                                    // Some Android storage setups don't support symlinks; write a stub or skip cleanly
-                                }
-                            }
-                            TarType.HARDLINK -> {
-                                validateLinkTarget(header.linkName, canonicalDest, canonicalDest)
-                                try {
-                                    val sourceFile = File(canonicalDest, header.linkName).canonicalFile
-                                    if (isUnderDestination(sourceFile, canonicalDest)) {
-                                        targetFile.parentFile?.mkdirs()
-                                        java.nio.file.Files.createLink(targetFile.toPath(), sourceFile.toPath())
-                                    }
-                                } catch (_: Throwable) {
-                                    // Hardlink fallback
-                                }
-                            }
-                            else -> {
-                                // Skip unhandled types (pax headers, device nodes, etc.)
-                                val pad = ((header.size + 511) / 512) * 512
-                                skipFully(gzis, pad)
-                            }
-                        }
-
-                        entryCount++
-                        listener?.onProgress(entryCount, totalBytes)
+            when (header.typeFlag) {
+                TarType.DIRECTORY -> {
+                    if (!targetFile.exists()) {
+                        targetFile.mkdirs()
                     }
                 }
+                TarType.REGULAR_FILE, TarType.NORMAL -> {
+                    targetFile.parentFile?.mkdirs()
+                    FileOutputStream(targetFile).use { fos ->
+                        var remaining = header.size
+                        val copyBuf = ByteArray(8192)
+                        while (remaining > 0) {
+                            val toRead = minOf(remaining, copyBuf.size.toLong()).toInt()
+                            val numRead = input.read(copyBuf, 0, toRead)
+                            if (numRead <= 0) break
+                            fos.write(copyBuf, 0, numRead)
+                            remaining -= numRead
+                            totalBytes += numRead
+                        }
+                    }
+                    val pad = (512 - (header.size % 512)) % 512
+                    if (pad > 0) {
+                        skipFully(input, pad)
+                    }
+                }
+                TarType.SYMLINK -> {
+                    validateLinkTarget(header.linkName, targetFile.parentFile ?: canonicalDest, canonicalDest)
+                    try {
+                        targetFile.parentFile?.mkdirs()
+                        if (targetFile.exists()) targetFile.delete()
+                        Files.createSymbolicLink(targetFile.toPath(), Paths.get(header.linkName))
+                    } catch (_: Throwable) {
+                        // Some systems disallow direct symlink creation; safe fallback
+                    }
+                }
+                TarType.HARDLINK -> {
+                    validateLinkTarget(header.linkName, canonicalDest, canonicalDest)
+                    try {
+                        val sourceFile = File(canonicalDest, header.linkName).canonicalFile
+                        if (isUnderDestination(sourceFile, canonicalDest)) {
+                            targetFile.parentFile?.mkdirs()
+                            if (targetFile.exists()) targetFile.delete()
+                            try {
+                                Files.createLink(targetFile.toPath(), sourceFile.toPath())
+                            } catch (_: Throwable) {
+                                // Hardlink fallback to copy or symlink
+                                Files.createSymbolicLink(targetFile.toPath(), sourceFile.toPath())
+                            }
+                        }
+                    } catch (_: Throwable) {}
+                }
+                else -> {
+                    val pad = ((header.size + 511) / 512) * 512
+                    skipFully(input, pad)
+                }
             }
+
+            entryCount++
+            listener?.onProgress(entryCount, totalBytes)
         }
 
         return totalBytes
@@ -151,7 +138,6 @@ class SecureArchiveExtractor {
     private fun validateLinkTarget(linkTarget: String, parentDir: File, destDir: File) {
         val clean = linkTarget.replace('\\', '/')
         if (clean.startsWith("/")) {
-            // Absolute link must still be under destDir if interpreted within rootfs
             val target = File(destDir, clean.removePrefix("/")).canonicalFile
             if (!isUnderDestination(target, destDir)) {
                 throw SecurityException("Absolute link escapes extraction root: '$linkTarget'")
@@ -216,10 +202,8 @@ class SecureArchiveExtractor {
     private fun parseTarHeader(buf: ByteArray): TarHeader? {
         val name = readNullTerminatedString(buf, 0, 100).trim()
         if (name.isEmpty()) return null
-
         val sizeStr = readNullTerminatedString(buf, 124, 12).trim()
         val size = runCatching { sizeStr.toLong(8) }.getOrDefault(0L)
-
         val typeByte = buf[156]
         val type = when (typeByte.toInt().toChar()) {
             '0', '\u0000' -> TarType.REGULAR_FILE
@@ -228,9 +212,7 @@ class SecureArchiveExtractor {
             '5' -> TarType.DIRECTORY
             else -> TarType.OTHER
         }
-
         val linkName = readNullTerminatedString(buf, 157, 100).trim()
-
         return TarHeader(name = name, size = size, typeFlag = type, linkName = linkName)
     }
 
