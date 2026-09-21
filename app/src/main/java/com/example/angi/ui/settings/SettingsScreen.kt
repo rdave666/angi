@@ -372,6 +372,38 @@ fun SettingsScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
+                                Text("Linux Execution (PRoot)", fontSize = 13.sp, color = AngiTextPrimary)
+                                Text(
+                                    "Enable linux_exec and process tools in Debian ARM64",
+                                    fontSize = 11.sp,
+                                    color = AngiTextSecondary
+                                )
+                            }
+                            Switch(
+                                checked = settings.isLinuxExecEnabled && settings.isLinuxProcessToolsEnabled,
+                                onCheckedChange = {
+                                    viewModel.updateSettings(
+                                        settings.copy(
+                                            isLinuxExecEnabled = it,
+                                            isLinuxProcessToolsEnabled = it
+                                        )
+                                    )
+                                },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = AngiDarkBackground,
+                                    checkedTrackColor = AngiPrimary
+                                )
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
                                 Text("Linux Workspace Tools", fontSize = 13.sp, color = AngiTextPrimary)
                                 Text(
                                     "Enable linux_read_file and linux_write_file in /workspace/**",

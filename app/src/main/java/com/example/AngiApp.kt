@@ -111,9 +111,16 @@ class AngiApp : Application() {
             register(LinuxProcessKillTool(linuxSandboxManager))
 
             // Linux Filesystem Tools
-            register(LinuxReadFileTool { linuxEnvironmentManager.getPathResolver() })
-            register(LinuxWriteFileTool { linuxEnvironmentManager.getPathResolver() })
-            register(LinuxListDirectoryTool { linuxEnvironmentManager.getPathResolver() })
+            val activePathResolverProvider: () -> com.example.angi.runtime.linux.LinuxPathResolver = {
+                if (linuxSandboxManager.isInstalled()) {
+                    com.example.angi.runtime.linux.LinuxPathResolver(linuxSandboxManager.paths.root)
+                } else {
+                    linuxEnvironmentManager.getPathResolver()
+                }
+            }
+            register(LinuxReadFileTool(activePathResolverProvider))
+            register(LinuxWriteFileTool(activePathResolverProvider))
+            register(LinuxListDirectoryTool(activePathResolverProvider))
 
             // Checkpoint B Android Shared Storage SAF Tools
             register(AndroidReadFileTool(applicationContext, androidSharedResourceRegistry))

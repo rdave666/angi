@@ -107,6 +107,32 @@ class AngiRegressionTest {
         assertTrue("Must succeed when confirmed", confirmedResult.isSuccess)
     }
 
+    @Test
+    fun `settings repository enables linux exec tools and permits zero prompt execution`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val settingsRepo = com.example.angi.data.settings.SettingsRepository(context)
+
+        // Linux execution tools must be enabled by default
+        assertTrue(settingsRepo.isToolEnabled("linux_exec"))
+        assertTrue(settingsRepo.isToolEnabled("linux_process_status"))
+        assertTrue(settingsRepo.isToolEnabled("linux_process_output"))
+        assertTrue(settingsRepo.isToolEnabled("linux_process_kill"))
+
+        // Linux execution tools run without prompt friction in sandbox
+        assertTrue(settingsRepo.canExecuteWithoutPrompt("linux_exec"))
+        assertTrue(settingsRepo.canExecuteWithoutPrompt("linux_process_status"))
+        assertTrue(settingsRepo.canExecuteWithoutPrompt("linux_process_output"))
+        assertTrue(settingsRepo.canExecuteWithoutPrompt("linux_process_kill"))
+
+        // Disabling linux_exec takes immediate effect
+        settingsRepo.setToolEnabled("linux_exec", false)
+        assertFalse(settingsRepo.isToolEnabled("linux_exec"))
+
+        // Restore for test cleanliness
+        settingsRepo.setToolEnabled("linux_exec", true)
+        assertTrue(settingsRepo.isToolEnabled("linux_exec"))
+    }
+
     // A10: Tool argument validation
     @Test
     fun `tool argument validation enforces types and required fields`() {

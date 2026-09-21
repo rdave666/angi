@@ -26,6 +26,8 @@ data class AngiSettings(
     val isLinuxReadFileEnabled: Boolean = true,
     val isLinuxWriteFileEnabled: Boolean = true,
     val isLinuxListDirectoryEnabled: Boolean = true,
+    val isLinuxExecEnabled: Boolean = true,
+    val isLinuxProcessToolsEnabled: Boolean = true,
     val isAndroidReadFileEnabled: Boolean = true,
     val isAndroidWriteFileEnabled: Boolean = true,
     val allowUnconfirmedAndroidWrite: Boolean = false
@@ -61,6 +63,8 @@ class SettingsRepository(
             isLinuxReadFileEnabled = prefs.getBoolean("tool_linux_read", true),
             isLinuxWriteFileEnabled = prefs.getBoolean("tool_linux_write", true),
             isLinuxListDirectoryEnabled = prefs.getBoolean("tool_linux_list", true),
+            isLinuxExecEnabled = prefs.getBoolean("tool_linux_exec", true),
+            isLinuxProcessToolsEnabled = prefs.getBoolean("tool_linux_process", true),
             isAndroidReadFileEnabled = prefs.getBoolean("tool_android_read", true),
             isAndroidWriteFileEnabled = prefs.getBoolean("tool_android_write", true),
             allowUnconfirmedAndroidWrite = prefs.getBoolean("tool_auto_android_write", false)
@@ -84,6 +88,8 @@ class SettingsRepository(
             .putBoolean("tool_linux_read", newSettings.isLinuxReadFileEnabled)
             .putBoolean("tool_linux_write", newSettings.isLinuxWriteFileEnabled)
             .putBoolean("tool_linux_list", newSettings.isLinuxListDirectoryEnabled)
+            .putBoolean("tool_linux_exec", newSettings.isLinuxExecEnabled)
+            .putBoolean("tool_linux_process", newSettings.isLinuxProcessToolsEnabled)
             .putBoolean("tool_android_read", newSettings.isAndroidReadFileEnabled)
             .putBoolean("tool_android_write", newSettings.isAndroidWriteFileEnabled)
             .putBoolean("tool_auto_android_write", newSettings.allowUnconfirmedAndroidWrite)
@@ -101,6 +107,10 @@ class SettingsRepository(
             "linux_read_file" -> _settings.value.isLinuxReadFileEnabled
             "linux_write_file" -> _settings.value.isLinuxWriteFileEnabled
             "linux_list_directory" -> _settings.value.isLinuxListDirectoryEnabled
+            "linux_exec" -> _settings.value.isLinuxExecEnabled
+            "linux_process_status",
+            "linux_process_output",
+            "linux_process_kill" -> _settings.value.isLinuxProcessToolsEnabled
             "android_read_file" -> _settings.value.isAndroidReadFileEnabled
             "android_write_file" -> _settings.value.isAndroidWriteFileEnabled
             "android_list_directory" -> true
@@ -117,6 +127,10 @@ class SettingsRepository(
             "linux_read_file" -> true // Auto allowed inside /workspace
             "linux_write_file" -> true // Auto allowed inside /workspace
             "linux_list_directory" -> true // Auto allowed inside /workspace
+            "linux_exec" -> true // Zero-confirmation persistent Linux execution
+            "linux_process_status",
+            "linux_process_output",
+            "linux_process_kill" -> true
             "android_read_file" -> true // Allowed for registered user grants
             "android_write_file" -> _settings.value.allowUnconfirmedAndroidWrite // User policy explicitly allows or prompts
             "android_list_directory" -> true
@@ -134,6 +148,10 @@ class SettingsRepository(
             "linux_read_file" -> current.copy(isLinuxReadFileEnabled = enabled)
             "linux_write_file" -> current.copy(isLinuxWriteFileEnabled = enabled)
             "linux_list_directory" -> current.copy(isLinuxListDirectoryEnabled = enabled)
+            "linux_exec" -> current.copy(isLinuxExecEnabled = enabled)
+            "linux_process_status",
+            "linux_process_output",
+            "linux_process_kill" -> current.copy(isLinuxProcessToolsEnabled = enabled)
             "android_read_file" -> current.copy(isAndroidReadFileEnabled = enabled)
             "android_write_file" -> current.copy(isAndroidWriteFileEnabled = enabled)
             else -> current
