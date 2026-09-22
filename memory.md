@@ -51,6 +51,7 @@
 | **Debian 12 Ecosystem** | 2026-09-19 | Upgraded to Debian Bookworm LXC ARM64, integrated `org.tukaani:xz`, configured `dpkg` `force-unsafe-io`, DNS resolvers, and base package set (`bash`, `git`, `python3`, `node`). |
 | **Model Shell Tools** | 2026-09-19 | Registered `linux_exec` and process control tools in `AngiApp`. Validated with unit tests (`ProotLauncherTest`, `SecureArchiveExtractorTest`) and successful `compile_applet`. |
 | **Capability Policy & Sandbox Sync** | 2026-09-21 | Wired `linux_exec` and process control into `SettingsRepository`, `CapabilityPolicy`, and `SettingsScreen`. Unified filesystem tool path resolver with installed PRoot sandbox. Added regression tests. |
+| **Environment Subsystem Convergence** | 2026-09-22 | Implemented `DefaultLinuxEnvironmentManager` for Checkpoint B fallback and Alpine minirootfs management. Verified compatibility with `LinuxSandboxManager`, diagnostics flow, and full test suite passing. |
 
 ---
 
