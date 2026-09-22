@@ -259,4 +259,62 @@ class AngiRegressionTest {
     fun `conversation service enforces maximum 8 tool steps limit`() {
         assertEquals("Maximum tool steps must be bounded at 8", 8, ConversationService.MAX_TOOL_STEPS)
     }
+
+    // Unified Linux filesystem ownership: guest /workspace and host tools address the same file
+    @Test
+    fun `guest workspace and linux filesystem tools address the identical physical file in linux sandbox`() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val sandboxManager = com.example.angi.runtime.proot.LinuxSandboxManager(context)
+
+        // Write to guest workspace path
+        val workspaceFile = java.io.File(sandboxManager.paths.workspaceDir, "unified_test.txt")
+        workspaceFile.parentFile?.mkdirs()
+        workspaceFile.writeText("unified-test-content", Charsets.UTF_8)
+
+        // Read through LinuxReadFileTool with unified resolver
+        val readTool = com.example.angi.tools.linux.LinuxReadFileTool { sandboxManager.getPathResolver() }
+        val readResult = readTool.execute(mapOf("path" to "/workspace/unified_test.txt"))
+
+        assertTrue("Read tool must succeed", readResult.isSuccess)
+        assertEquals("unified-test-content", readResult.output)
+
+        // Write through LinuxWriteFileTool
+        val writeTool = com.example.angi.tools.linux.LinuxWriteFileTool { sandboxManager.getPathResolver() }
+        val writeResult = writeTool.execute(mapOf("path" to "/workspace/host_written.txt", "content" to "host-content"))
+        assertTrue("Write tool must succeed", writeResult.isSuccess)
+
+        val guestHostWritten = java.io.File(sandboxManager.paths.workspaceDir, "host_written.txt")
+        assertTrue("Physical file must exist at workspace mount point", guestHostWritten.exists())
+        assertEquals("host-content", guestHostWritten.readText())
+    }
+
+    // ToolExecutionContext propagation without exposing to model input
+    @Test
+    fun `tool executor passes conversationId execution context to tools`() = runBlocking {
+        var capturedContext: com.example.angi.domain.tools.ToolExecutionContext? = null
+        val testTool = object : AngiTool {
+            override val definition = ToolDefinition("context_spy", "desc", emptyMap())
+            override suspend fun execute(arguments: Map<String, Any?>) = ToolResult("id", "context_spy", true, "ok")
+            override suspend fun execute(
+                arguments: Map<String, Any?>,
+                context: com.example.angi.domain.tools.ToolExecutionContext
+            ): ToolResult {
+                capturedContext = context
+                return ToolResult("id", "context_spy", true, "ok")
+            }
+        }
+        val registry = ToolRegistry().apply { register(testTool) }
+        val policy = object : CapabilityPolicy {
+            override fun isToolEnabled(toolName: String) = true
+            override fun canExecuteWithoutPrompt(toolName: String) = true
+            override fun setToolEnabled(toolName: String, enabled: Boolean) {}
+        }
+        val executor = ToolExecutor(registry, policy)
+        executor.execute(
+            toolName = "context_spy",
+            arguments = emptyMap(),
+            context = com.example.angi.domain.tools.ToolExecutionContext("conv_session_999")
+        )
+        assertEquals("conv_session_999", capturedContext?.conversationId)
+    }
 }

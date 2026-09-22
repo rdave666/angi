@@ -21,6 +21,12 @@ sealed interface InstallStep {
     data class Packages(val packages: List<String>) : InstallStep
 }
 
+data class InstallResult(
+    val archiveSizeBytes: Long,
+    val sha256: String,
+    val downloadUrl: String
+)
+
 private const val UPDATE_TIMEOUT_SECONDS = 300L
 private const val PACKAGE_TIMEOUT_SECONDS = 900L
 
@@ -30,7 +36,7 @@ class LinuxInstaller(
 ) {
     private val extractor = SecureArchiveExtractor()
 
-    suspend fun installDebian(onStep: (InstallStep) -> Unit): Result<Unit> = withContext(Dispatchers.IO) {
+    suspend fun installDebian(onStep: (InstallStep) -> Unit): Result<InstallResult> = withContext(Dispatchers.IO) {
         runCatching {
             paths.ensureLayout()
             val proot = File(paths.prootPath)
@@ -45,14 +51,16 @@ class LinuxInstaller(
             val archive = File(paths.root, DebianDistroSpec.ARCHIVE_NAME)
             val urls = DebianDistroSpec.rootfsUrls()
             check(urls.isNotEmpty()) { "No download URLs available for Debian" }
+            val downloadUrl = urls.first()
 
-            try {
+            val (archiveSize, computedSha256) = try {
                 onStep(InstallStep.Download(0f))
-                downloadFile(urls.first(), archive) { onStep(InstallStep.Download(it)) }
+                val stats = downloadFile(downloadUrl, archive) { onStep(InstallStep.Download(it)) }
                 currentCoroutineContext().ensureActive()
 
                 onStep(InstallStep.Extract)
                 extractor.extractTarXz(archive, paths.rootfsDir)
+                stats
             } finally {
                 archive.delete()
             }
@@ -80,19 +88,24 @@ class LinuxInstaller(
             }
 
             paths.writeMarker(DebianDistroSpec.ID)
-            Unit
+            InstallResult(
+                archiveSizeBytes = archiveSize,
+                sha256 = computedSha256,
+                downloadUrl = downloadUrl
+            )
         }.onFailure {
             paths.deleteInstall()
         }
     }
 
-    private fun downloadFile(url: String, target: File, onProgress: (Float) -> Unit) {
+    private fun downloadFile(url: String, target: File, onProgress: (Float) -> Unit): Pair<Long, String> {
         val request = Request.Builder().url(url).build()
         httpClient.newCall(request).execute().use { response ->
             if (!response.isSuccessful) throw IOException("Failed to download rootfs: HTTP ${response.code}")
             val body = response.body ?: throw IOException("Empty response body from $url")
             val totalBytes = body.contentLength()
             var downloaded = 0L
+            val digest = java.security.MessageDigest.getInstance("SHA-256")
 
             FileOutputStream(target).use { fos ->
                 val input = body.byteStream()
@@ -101,12 +114,15 @@ class LinuxInstaller(
                     val read = input.read(buffer)
                     if (read <= 0) break
                     fos.write(buffer, 0, read)
+                    digest.update(buffer, 0, read)
                     downloaded += read
                     if (totalBytes > 0) {
                         onProgress((downloaded.toFloat() / totalBytes).coerceIn(0f, 1f))
                     }
                 }
             }
+            val sha256Hex = digest.digest().joinToString("") { "%02x".format(it) }
+            return Pair(downloaded, sha256Hex)
         }
     }
 

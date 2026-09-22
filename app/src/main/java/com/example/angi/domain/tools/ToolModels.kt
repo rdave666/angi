@@ -130,9 +130,14 @@ fun validateToolArguments(definition: ToolDefinition, arguments: Map<String, Any
     return ToolValidationResult(isValid = true, sanitizedArguments = sanitized)
 }
 
+data class ToolExecutionContext(
+    val conversationId: String
+)
+
 interface AngiTool {
     val definition: ToolDefinition
-    suspend fun execute(arguments: Map<String, Any?>): ToolResult
+    suspend fun execute(arguments: Map<String, Any?>): ToolResult = execute(arguments, ToolExecutionContext("default"))
+    suspend fun execute(arguments: Map<String, Any?>, context: ToolExecutionContext): ToolResult = execute(arguments)
 }
 
 interface CapabilityPolicy {
@@ -162,7 +167,8 @@ class ToolExecutor(
     suspend fun execute(
         toolName: String,
         arguments: Map<String, Any?>,
-        confirmed: Boolean = false
+        confirmed: Boolean = false,
+        context: ToolExecutionContext = ToolExecutionContext("default")
     ): ToolResult {
         // Step 1: Does tool exist?
         val tool = registry.getTool(toolName) ?: return ToolResult(
@@ -211,7 +217,7 @@ class ToolExecutor(
 
         // Step 5: Execute tool
         return runCatching {
-            tool.execute(validation.sanitizedArguments)
+            tool.execute(validation.sanitizedArguments, context)
         }.getOrElse { e ->
             ToolResult(
                 callId = toolName,

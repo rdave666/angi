@@ -5,7 +5,6 @@ import androidx.room.Room
 import com.example.angi.data.db.AngiDatabase
 import com.example.angi.data.db.ConversationRepository
 import com.example.angi.data.db.RoomConversationRepository
-import com.example.angi.data.environment.DefaultLinuxEnvironmentManager
 import com.example.angi.data.models.LocalModelRepository
 import com.example.angi.data.models.ModelRepository
 import com.example.angi.data.saf.DefaultAndroidSharedResourceRegistry
@@ -50,11 +49,11 @@ class AngiApp : Application() {
     lateinit var settingsRepository: SettingsRepository
         private set
 
-    lateinit var linuxEnvironmentManager: DefaultLinuxEnvironmentManager
-        private set
-
     lateinit var linuxSandboxManager: LinuxSandboxManager
         private set
+
+    val linuxEnvironmentManager: LinuxEnvironmentManager
+        get() = linuxSandboxManager
 
     lateinit var androidSharedResourceRegistry: AndroidSharedResourceRegistry
         private set
@@ -89,8 +88,7 @@ class AngiApp : Application() {
         modelRepository = LocalModelRepository(applicationContext, database.modelDao())
         settingsRepository = SettingsRepository(applicationContext)
 
-        // Checkpoint B: Isolated Linux Environment & SAF Shared Resources
-        linuxEnvironmentManager = DefaultLinuxEnvironmentManager(applicationContext)
+        // Checkpoint B & Linux Userspace Sandbox: Unified PRoot + Debian ARM64 manager
         linuxSandboxManager = LinuxSandboxManager(applicationContext)
         androidSharedResourceRegistry = DefaultAndroidSharedResourceRegistry(applicationContext)
 
@@ -102,25 +100,16 @@ class AngiApp : Application() {
             register(OpenUrlTool(applicationContext))
 
             // Real Linux Userspace Execution Tools (PRoot + Debian ARM64)
-            register(LinuxExecTool(linuxSandboxManager) {
-                // Return current active conversation ID or fallback to default
-                conversationRepository.let { "default_conversation" }
-            })
+            register(LinuxExecTool(linuxSandboxManager))
             register(LinuxProcessStatusTool(linuxSandboxManager))
             register(LinuxProcessOutputTool(linuxSandboxManager))
             register(LinuxProcessKillTool(linuxSandboxManager))
 
             // Linux Filesystem Tools
-            val activePathResolverProvider: () -> com.example.angi.runtime.linux.LinuxPathResolver = {
-                if (linuxSandboxManager.isInstalled()) {
-                    com.example.angi.runtime.linux.LinuxPathResolver(linuxSandboxManager.paths.root)
-                } else {
-                    linuxEnvironmentManager.getPathResolver()
-                }
-            }
-            register(LinuxReadFileTool(activePathResolverProvider))
-            register(LinuxWriteFileTool(activePathResolverProvider))
-            register(LinuxListDirectoryTool(activePathResolverProvider))
+            val pathResolverProvider = { linuxSandboxManager.getPathResolver() }
+            register(LinuxReadFileTool(pathResolverProvider))
+            register(LinuxWriteFileTool(pathResolverProvider))
+            register(LinuxListDirectoryTool(pathResolverProvider))
 
             // Checkpoint B Android Shared Storage SAF Tools
             register(AndroidReadFileTool(applicationContext, androidSharedResourceRegistry))

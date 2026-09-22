@@ -153,7 +153,8 @@ class ConversationService(
                 val toolResult = toolExecutor.execute(
                     toolName = toolCall.name,
                     arguments = toolCall.arguments,
-                    confirmed = toolConfirmed
+                    confirmed = toolConfirmed,
+                    context = com.example.angi.domain.tools.ToolExecutionContext(conversationId)
                 )
                 val toolMessage = Message.Tool(
                     id = UUID.randomUUID().toString(),

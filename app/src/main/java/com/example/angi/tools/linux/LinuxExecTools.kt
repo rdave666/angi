@@ -3,6 +3,7 @@ package com.example.angi.tools.linux
 import com.example.angi.domain.tools.AngiTool
 import com.example.angi.domain.tools.ToolCategory
 import com.example.angi.domain.tools.ToolDefinition
+import com.example.angi.domain.tools.ToolExecutionContext
 import com.example.angi.domain.tools.ToolParameter
 import com.example.angi.domain.tools.ToolResult
 import com.example.angi.runtime.proot.LinuxSandboxManager
@@ -20,8 +21,7 @@ import kotlinx.coroutines.withContext
  * - Zero confirmation dialogs for normal Linux execution.
  */
 class LinuxExecTool(
-    private val sandboxManager: LinuxSandboxManager,
-    private val conversationIdProvider: () -> String = { "default_conversation" }
+    private val sandboxManager: LinuxSandboxManager
 ) : AngiTool {
 
     override val definition: ToolDefinition = ToolDefinition(
@@ -40,7 +40,11 @@ class LinuxExecTool(
         category = ToolCategory.SYSTEM
     )
 
-    override suspend fun execute(arguments: Map<String, Any?>): ToolResult = withContext(Dispatchers.IO) {
+    override suspend fun execute(arguments: Map<String, Any?>): ToolResult {
+        return execute(arguments, ToolExecutionContext("default"))
+    }
+
+    override suspend fun execute(arguments: Map<String, Any?>, context: ToolExecutionContext): ToolResult = withContext(Dispatchers.IO) {
         val command = arguments["command"]?.toString() ?: return@withContext ToolResult(
             callId = "linux_exec",
             toolName = definition.name,
@@ -107,8 +111,8 @@ class LinuxExecTool(
             )
         }
 
-        // Persistent shell path
-        val convId = conversationIdProvider()
+        // Persistent shell path using real conversation ID
+        val convId = context.conversationId
         val shell = sandboxManager.shellFor(convId)
 
         // Build command wrapper if workingDir or env specified

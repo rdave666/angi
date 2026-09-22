@@ -114,14 +114,18 @@ class LinuxSandboxManager(
         }
         _installStep.value = null
         if (result.isSuccess) {
+            val installDetails = result.getOrNull()
+            val actualChecksum = installDetails?.sha256 ?: "NOT VERIFIED"
+            val archiveSize = installDetails?.archiveSizeBytes ?: 0L
             val meta = LinuxEnvironmentMetadata(
                 environmentId = PinnedLinuxEnvironments.DEBIAN_12_ARM64.id,
                 distribution = DebianDistroSpec.DISPLAY_NAME,
                 version = "12 (Bookworm)",
                 architecture = DebianDistroSpec.arch(),
-                sourceUrl = PinnedLinuxEnvironments.DEBIAN_12_ARM64.sourceUrl,
-                expectedSha256 = "",
-                actualSha256 = "verified",
+                sourceUrl = installDetails?.downloadUrl ?: PinnedLinuxEnvironments.DEBIAN_12_ARM64.sourceUrl,
+                expectedSha256 = "NOT VERIFIED",
+                actualSha256 = actualChecksum,
+                archiveSizeBytes = archiveSize,
                 installedSizeBytes = calculateDirSize(paths.rootfsDir),
                 installTimestamp = System.currentTimeMillis(),
                 lastError = null
@@ -133,7 +137,7 @@ class LinuxSandboxManager(
             updateStatus(LinuxEnvironmentStatus.FAILED, err)
         }
         refreshEnvironments()
-        return result
+        return if (result.isSuccess) Result.success(Unit) else Result.failure(result.exceptionOrNull() ?: Exception("Installation failed"))
     }
 
     override suspend fun download(definition: LinuxEnvironmentDefinition): Result<Unit> {
