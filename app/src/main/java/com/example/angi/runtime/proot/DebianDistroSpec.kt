@@ -43,6 +43,22 @@ object DebianDistroSpec {
         return listOf(LXC_BASE + path.removeSuffix("/") + "/rootfs.tar.xz")
     }
 
+    fun writeResolvConf(rootfsDir: File) {
+        val etc = File(rootfsDir, "etc").apply { mkdirs() }
+        val resolvConf = File(etc, "resolv.conf").toPath()
+        try {
+            if (java.nio.file.Files.isSymbolicLink(resolvConf) || java.nio.file.Files.exists(resolvConf, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+                java.nio.file.Files.delete(resolvConf)
+            }
+        } catch (_: Throwable) {
+            File(etc, "resolv.conf").delete()
+        }
+        java.nio.file.Files.write(
+            resolvConf,
+            "nameserver 8.8.8.8\nnameserver 1.1.1.1\nnameserver 8.8.4.4\n".toByteArray(Charsets.UTF_8)
+        )
+    }
+
     fun configure(rootfsDir: File) {
         // Ensure standard directories required by apt/dpkg
         listOf(
@@ -59,10 +75,8 @@ object DebianDistroSpec {
         ).forEach { File(rootfsDir, it).mkdirs() }
 
         // Setup DNS
+        writeResolvConf(rootfsDir)
         val etc = File(rootfsDir, "etc").apply { mkdirs() }
-        File(etc, "resolv.conf").writeText(
-            "nameserver 8.8.8.8\nnameserver 1.1.1.1\nnameserver 8.8.4.4\n"
-        )
         File(etc, "hosts").writeText("127.0.0.1 localhost\n::1 localhost\n")
 
         // Force unsafe io for dpkg so writes/fsyncs don't block phone storage
