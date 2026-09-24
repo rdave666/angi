@@ -7,14 +7,20 @@ import android.os.Build
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.AngiApp
+import com.example.angi.data.models.ModelRepository
 import com.example.angi.domain.environment.LinuxEnvironment
 import com.example.angi.domain.environment.LinuxEnvironmentStatus
 import com.example.angi.domain.environment.LinuxRwSelfTestResult
 import com.example.angi.domain.environment.PinnedLinuxEnvironments
+import com.example.angi.domain.inference.InferenceEngine
 import com.example.angi.domain.inference.RuntimeInfo
 import com.example.angi.domain.models.ModelDescriptor
 import com.example.angi.domain.saf.AndroidSharedResource
+import com.example.angi.domain.saf.AndroidSharedResourceRegistry
 import com.example.angi.domain.saf.SafCapability
+import com.example.angi.runtime.proot.InstallStep
+import com.example.angi.runtime.proot.LinuxSandboxManager
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -35,15 +41,20 @@ data class DiagnosticsUiState(
     val isEnvironmentActionRunning: Boolean = false,
     val environmentActionMessage: String? = null,
     val selfTestResult: LinuxRwSelfTestResult? = null,
-    val sharedResources: List<AndroidSharedResource> = emptyList()
+    val sharedResources: List<AndroidSharedResource> = emptyList(),
+    // Install live status
+    val currentInstallStage: String? = null,
+    val currentInstallMessage: String? = null,
+    val downloadProgress: Float? = null,
+    val installRunning: Boolean = false
 )
 
-class DiagnosticsViewModel : ViewModel() {
-
-    private val inferenceEngine = AngiApp.instance.inferenceEngine
-    private val modelRepo = AngiApp.instance.modelRepository
-    private val linuxEnvManager = AngiApp.instance.linuxEnvironmentManager
-    private val safRegistry = AngiApp.instance.androidSharedResourceRegistry
+class DiagnosticsViewModel(
+    private val inferenceEngine: InferenceEngine = AngiApp.instance.inferenceEngine,
+    private val modelRepo: ModelRepository = AngiApp.instance.modelRepository,
+    private val linuxSandboxManager: LinuxSandboxManager = AngiApp.instance.linuxSandboxManager,
+    private val safRegistry: AndroidSharedResourceRegistry = AngiApp.instance.androidSharedResourceRegistry
+) : ViewModel() {
 
     private val _uiState = MutableStateFlow(DiagnosticsUiState())
     val uiState: StateFlow<DiagnosticsUiState> = _uiState.asStateFlow()
@@ -55,13 +66,31 @@ class DiagnosticsViewModel : ViewModel() {
 
     private fun observeEnvironmentsAndResources() {
         viewModelScope.launch {
-            linuxEnvManager.environments().collect { envs ->
+            linuxSandboxManager.environments().collect { envs ->
                 _uiState.value = _uiState.value.copy(environments = envs)
             }
         }
         viewModelScope.launch {
             safRegistry.getResources().collect { res ->
                 _uiState.value = _uiState.value.copy(sharedResources = res)
+            }
+        }
+        viewModelScope.launch {
+            linuxSandboxManager.installStep.collect { step ->
+                if (step != null) {
+                    val stage = step::class.simpleName ?: "Unknown"
+                    val message = mapInstallStepToMessage(step)
+                    val progress = if (step is InstallStep.Download) step.fraction else null
+                    val isRunning = step !is InstallStep.Complete
+                    _uiState.value = _uiState.value.copy(
+                        currentInstallStage = stage,
+                        currentInstallMessage = message,
+                        downloadProgress = progress,
+                        installRunning = isRunning,
+                        isEnvironmentActionRunning = isRunning,
+                        environmentActionMessage = message
+                    )
+                }
             }
         }
     }
@@ -95,57 +124,74 @@ class DiagnosticsViewModel : ViewModel() {
         }
     }
 
-    fun downloadEnvironment(definitionId: String) {
-        val def = PinnedLinuxEnvironments.DEFAULT_DEFINITIONS.find { it.id == definitionId } ?: return
-        viewModelScope.launch {
+    fun installDebian(): Job {
+        if (_uiState.value.installRunning) return Job().apply { complete() }
+        return viewModelScope.launch {
             _uiState.value = _uiState.value.copy(
+                installRunning = true,
                 isEnvironmentActionRunning = true,
-                environmentActionMessage = "Downloading ${def.distribution} archive..."
+                currentInstallStage = "ResolveImage",
+                currentInstallMessage = "Resolving Debian ARM64 image…",
+                downloadProgress = null
             )
-            val res = linuxEnvManager.download(def)
-            _uiState.value = _uiState.value.copy(
-                isEnvironmentActionRunning = false,
-                environmentActionMessage = if (res.isSuccess) "Download and SHA-256 verification complete!" else "Download failed: ${res.exceptionOrNull()?.message}"
-            )
+            val res = linuxSandboxManager.install()
+            if (res.isFailure) {
+                val err = res.exceptionOrNull()?.message ?: "Unknown error"
+                _uiState.value = _uiState.value.copy(
+                    installRunning = false,
+                    isEnvironmentActionRunning = false,
+                    currentInstallStage = "Failed",
+                    currentInstallMessage = "Installation failed: $err",
+                    downloadProgress = null,
+                    environmentActionMessage = "Installation failed: $err"
+                )
+            } else {
+                _uiState.value = _uiState.value.copy(
+                    installRunning = false,
+                    isEnvironmentActionRunning = false,
+                    currentInstallStage = "Complete",
+                    currentInstallMessage = "Debian ready.",
+                    downloadProgress = null,
+                    environmentActionMessage = "Debian ready."
+                )
+            }
         }
     }
 
-    fun installEnvironment(environmentId: String) {
-        viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(
-                isEnvironmentActionRunning = true,
-                environmentActionMessage = "Extracting isolated Linux filesystem..."
-            )
-            val res = linuxEnvManager.install(environmentId)
-            _uiState.value = _uiState.value.copy(
-                isEnvironmentActionRunning = false,
-                environmentActionMessage = if (res.isSuccess) "Linux filesystem environment installed!" else "Installation failed: ${res.exceptionOrNull()?.message}"
-            )
-        }
+    fun downloadEnvironment(definitionId: String): Job {
+        return installDebian()
     }
 
-    fun deleteEnvironment(environmentId: String) {
-        viewModelScope.launch {
+    fun installEnvironment(environmentId: String): Job {
+        return installDebian()
+    }
+
+    fun deleteEnvironment(environmentId: String = PinnedLinuxEnvironments.DEBIAN_12_ARM64.id): Job {
+        return viewModelScope.launch {
             _uiState.value = _uiState.value.copy(
                 isEnvironmentActionRunning = true,
                 environmentActionMessage = "Deleting environment..."
             )
-            linuxEnvManager.delete(environmentId)
+            linuxSandboxManager.delete(environmentId)
             _uiState.value = _uiState.value.copy(
                 isEnvironmentActionRunning = false,
                 environmentActionMessage = "Environment deleted.",
+                currentInstallStage = null,
+                currentInstallMessage = null,
+                downloadProgress = null,
+                installRunning = false,
                 selfTestResult = null
             )
         }
     }
 
-    fun runRwSelfTest(environmentId: String) {
-        viewModelScope.launch {
+    fun runRwSelfTest(environmentId: String = PinnedLinuxEnvironments.DEBIAN_12_ARM64.id): Job {
+        return viewModelScope.launch {
             _uiState.value = _uiState.value.copy(
                 isEnvironmentActionRunning = true,
                 environmentActionMessage = "Executing direct filesystem R/W self-test..."
             )
-            val result = linuxEnvManager.runSelfTest(environmentId)
+            val result = linuxSandboxManager.runSelfTest(environmentId)
             _uiState.value = _uiState.value.copy(
                 isEnvironmentActionRunning = false,
                 environmentActionMessage = null,
@@ -170,6 +216,25 @@ class DiagnosticsViewModel : ViewModel() {
     fun revokeSafResource(resourceId: String) {
         viewModelScope.launch {
             safRegistry.unregister(resourceId)
+        }
+    }
+
+    companion object {
+        fun mapInstallStepToMessage(step: InstallStep): String {
+            return when (step) {
+                is InstallStep.ResolveImage -> "Resolving Debian ARM64 image…"
+                is InstallStep.Download -> {
+                    val pct = (step.fraction * 100).toInt()
+                    "Downloading rootfs — $pct%"
+                }
+                is InstallStep.Extract -> "Extracting Debian filesystem…"
+                is InstallStep.Configure -> "Configuring DNS / dpkg…"
+                is InstallStep.ProotTest -> "Starting PRoot…"
+                is InstallStep.AptUpdate -> "Updating apt package index…"
+                is InstallStep.Packages -> "Installing base packages…"
+                is InstallStep.Finalize -> "Finalizing installation…"
+                is InstallStep.Complete -> "Debian ready."
+            }
         }
     }
 }

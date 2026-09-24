@@ -101,76 +101,47 @@ class GenieXInferenceEngine(
                     throw java.io.FileNotFoundException(errorMsg)
                 }
 
-                // Requirement A4: Separate configuration paths for LLAMA_CPP and QAIRT
-                val runtimeIdStr: String
-                val computeUnitStr: String
-                val modelConfig: ModelConfig
+                val createInput = buildLlmCreateInput(model)
 
-                when (model.runtime) {
-                    RuntimeType.LLAMA_CPP -> {
-                        runtimeIdStr = RuntimeIdValue.LLAMA_CPP.value ?: "llama_cpp"
-                        val totalLayers = determineTotalModelLayers(model)
-                        val nGpuLayers = when (model.preferredCompute) {
-                            ComputeUnit.CPU -> 0
-                            ComputeUnit.GPU -> totalLayers
-                            ComputeUnit.NPU -> totalLayers
-                            ComputeUnit.HYBRID -> (totalLayers + 1) / 2
+                // Requirement 5: Diagnostics/logging before LlmWrapper.build()
+                val exists = modelFile.exists()
+                val byteSize = if (exists) modelFile.length() else 0L
+                val ggufMagic = if (exists && byteSize >= 4) {
+                    runCatching {
+                        modelFile.inputStream().use { stream ->
+                            val magic = ByteArray(4)
+                            val read = stream.read(magic)
+                            if (read == 4) {
+                                val ascii = String(magic, Charsets.US_ASCII)
+                                val hex = magic.joinToString(" ") { String.format("0x%02X", it) }
+                                "$ascii ($hex)"
+                            } else "read_incomplete"
                         }
-                        computeUnitStr = when (model.preferredCompute) {
-                            ComputeUnit.NPU -> ComputeUnitValue.NPU.value ?: "npu"
-                            ComputeUnit.GPU -> ComputeUnitValue.GPU.value ?: "gpu"
-                            ComputeUnit.CPU -> ComputeUnitValue.CPU.value ?: "cpu"
-                            ComputeUnit.HYBRID -> ComputeUnitValue.HYBRID.value ?: "hybrid"
-                        }
-                        modelConfig = ModelConfig(
-                            nCtx = model.contextLength,
-                            nThreads = 4,
-                            nThreadsBatch = 4,
-                            nBatch = 512,
-                            nUBatch = 512,
-                            nSeqMax = 1,
-                            nGpuLayers = nGpuLayers,
-                            chat_template_path = "",
-                            chat_template_content = "",
-                            max_tokens = 1024,
-                            enable_thinking = false,
-                            verbose = true
-                        )
-                    }
-                    RuntimeType.QAIRT -> {
-                        // QAIRT models use pre-compiled graph dimensions; do not override arbitrary llama.cpp tuning fields
-                        runtimeIdStr = RuntimeIdValue.QAIRT.value ?: "qairt"
-                        computeUnitStr = ComputeUnitValue.NPU.value ?: "npu"
-                        modelConfig = ModelConfig(
-                            nCtx = 0,
-                            nThreads = 0,
-                            nThreadsBatch = 0,
-                            nBatch = 0,
-                            nUBatch = 0,
-                            nSeqMax = 1,
-                            nGpuLayers = 0,
-                            chat_template_path = "",
-                            chat_template_content = "",
-                            max_tokens = 1024,
-                            enable_thinking = false,
-                            verbose = true
-                        )
-                    }
-                }
+                    }.getOrDefault("read_failed")
+                } else "not_available"
 
-                val createInput = LlmCreateInput(
-                    model_name = model.name,
-                    model_path = model.modelPath,
-                    tokenizer_path = model.tokenizerPath,
-                    config = modelConfig,
-                    runtime_id = runtimeIdStr,
-                    compute_unit = computeUnitStr
-                )
+                val deviceAbi = Build.SUPPORTED_ABIS.joinToString(", ")
+                val socDevice = "${Build.MANUFACTURER} ${Build.MODEL} (Hardware: ${Build.HARDWARE}, Board: ${Build.BOARD}, ABI: $deviceAbi)"
 
+                Log.i(tag, "================ GenieX Model Load Diagnostic ================")
+                Log.i(tag, "Model Path:         ${model.modelPath}")
+                Log.i(tag, "Exists:             $exists")
+                Log.i(tag, "Byte Size:          $byteSize")
+                Log.i(tag, "GGUF Magic:         $ggufMagic")
+                Log.i(tag, "Runtime ID:         ${createInput.runtime_id}")
+                Log.i(tag, "Compute Unit:       ${createInput.compute_unit}")
+                Log.i(tag, "nCtx:               ${createInput.config.nCtx}")
+                Log.i(tag, "nGpuLayers:         ${createInput.config.nGpuLayers}")
+                Log.i(tag, "Device / SoC / ABI: $socDevice")
+                Log.i(tag, "GenieX Init State:  $isSdkInitialized (RuntimeState: $runtimeState)")
+                Log.i(tag, "==============================================================")
+
+                Log.i(tag, "--> Executing geniex_llm_create via LlmWrapper.builder().build()...")
                 val buildResult = LlmWrapper.builder()
                     .llmCreateInput(createInput)
                     .dispatcher(Dispatchers.IO)
                     .build()
+                Log.i(tag, "<-- LlmWrapper build completed. isSuccess=${buildResult.isSuccess}")
 
                 if (buildResult.isSuccess) {
                     activeLlm = buildResult.getOrThrow()
@@ -396,112 +367,6 @@ class GenieXInferenceEngine(
         return sb.toString()
     }
 
-    private fun determineTotalModelLayers(model: ModelDescriptor): Int {
-        runCatching {
-            val file = File(model.modelPath)
-            if (file.exists() && file.length() > 64) {
-                val blockCount = readGgufBlockCount(file)
-                if (blockCount > 0) return blockCount
-            }
-        }
-
-        val fam = model.family.lowercase()
-        val params = model.parameterCount.lowercase()
-        return when {
-            fam.contains("phi") -> 32
-            fam.contains("qwen") -> {
-                if (params.contains("0.5")) 24
-                else if (params.contains("1.5") || params.contains("1b")) 28
-                else if (params.contains("3") || params.contains("7")) 28
-                else 28
-            }
-            fam.contains("llama") -> {
-                if (params.contains("1b") || params.contains("1.")) 16
-                else if (params.contains("3b") || params.contains("3.")) 28
-                else if (params.contains("7b") || params.contains("8b")) 32
-                else 28
-            }
-            params.contains("1b") || params.contains("1.") -> 16
-            params.contains("3b") || params.contains("3.") -> 28
-            params.contains("7b") || params.contains("8b") -> 32
-            else -> 28
-        }
-    }
-
-    private fun readGgufBlockCount(file: File): Int {
-        return runCatching {
-            file.inputStream().use { input ->
-                val header = ByteArray(4)
-                if (input.read(header) != 4) return@use 0
-                if (header[0] != 0x47.toByte() || header[1] != 0x47.toByte() || header[2] != 0x55.toByte() || header[3] != 0x46.toByte()) {
-                    return@use 0
-                }
-                // Skip version (4 bytes), tensor_count (8 bytes)
-                val skipBytes = ByteArray(12)
-                if (input.read(skipBytes) != 12) return@use 0
-
-                // Read kv_count (uint64 little endian, treat as long)
-                val kvCountBytes = ByteArray(8)
-                if (input.read(kvCountBytes) != 8) return@use 0
-                var kvCount = 0L
-                for (i in 0..7) {
-                    kvCount = kvCount or ((kvCountBytes[i].toLong() and 0xFFL) shl (i * 8))
-                }
-
-                val maxKvToScan = minOf(kvCount, 128L)
-                for (k in 0 until maxKvToScan) {
-                    val keyLenBytes = ByteArray(8)
-                    if (input.read(keyLenBytes) != 8) break
-                    var keyLen = 0L
-                    for (i in 0..7) {
-                        keyLen = keyLen or ((keyLenBytes[i].toLong() and 0xFFL) shl (i * 8))
-                    }
-                    if (keyLen <= 0 || keyLen > 512) break
-                    val keyBytes = ByteArray(keyLen.toInt())
-                    if (input.read(keyBytes) != keyLen.toInt()) break
-                    val key = String(keyBytes, Charsets.US_ASCII)
-
-                    val typeBytes = ByteArray(4)
-                    if (input.read(typeBytes) != 4) break
-                    val valueType = (typeBytes[0].toInt() and 0xFF) or
-                        ((typeBytes[1].toInt() and 0xFF) shl 8) or
-                        ((typeBytes[2].toInt() and 0xFF) shl 16) or
-                        ((typeBytes[3].toInt() and 0xFF) shl 24)
-
-                    if (key.endsWith(".block_count") && valueType == 4) { // GGUF_TYPE_UINT32
-                        val valBytes = ByteArray(4)
-                        if (input.read(valBytes) == 4) {
-                            val count = (valBytes[0].toInt() and 0xFF) or
-                                ((valBytes[1].toInt() and 0xFF) shl 8) or
-                                ((valBytes[2].toInt() and 0xFF) shl 16) or
-                                ((valBytes[3].toInt() and 0xFF) shl 24)
-                            return@use count
-                        }
-                    }
-
-                    // Skip value
-                    when (valueType) {
-                        0, 1, 7 -> input.skip(1)
-                        2, 3 -> input.skip(2)
-                        4, 5, 6 -> input.skip(4)
-                        10, 11, 12 -> input.skip(8)
-                        8 -> { // String
-                            val strLenBytes = ByteArray(8)
-                            if (input.read(strLenBytes) != 8) break
-                            var strLen = 0L
-                            for (i in 0..7) {
-                                strLen = strLen or ((strLenBytes[i].toLong() and 0xFFL) shl (i * 8))
-                            }
-                            if (strLen > 0) input.skip(strLen)
-                        }
-                        else -> break // Array or unknown, stop scan
-                    }
-                }
-                0
-            }
-        }.getOrDefault(0)
-    }
-
     private fun checkForToolCall(text: String): ToolCall? {
         val pattern = Regex("```tool_code\\s*\\n(\\{[\\s\\S]*?\\})\\s*\\n```")
         val match = pattern.find(text) ?: return null
@@ -518,5 +383,50 @@ class GenieXInferenceEngine(
                 arguments = argsMap
             )
         }.getOrNull()
+    }
+
+    companion object {
+        fun buildLlmCreateInput(model: ModelDescriptor): LlmCreateInput {
+            val runtimeIdStr: String
+            val computeUnitStr: String?
+            val modelConfig: ModelConfig
+
+            when (model.runtime) {
+                RuntimeType.LLAMA_CPP -> {
+                    runtimeIdStr = RuntimeIdValue.LLAMA_CPP.value ?: "llama_cpp"
+                    val nGpuLayers = when (model.preferredCompute) {
+                        ComputeUnit.CPU -> 0
+                        ComputeUnit.GPU, ComputeUnit.HYBRID, ComputeUnit.NPU -> -1
+                    }
+                    computeUnitStr = when (model.preferredCompute) {
+                        ComputeUnit.CPU -> "cpu"
+                        ComputeUnit.GPU -> "gpu"
+                        ComputeUnit.HYBRID -> ComputeUnitValue.HYBRID.value ?: "hybrid"
+                        ComputeUnit.NPU -> "npu"
+                    }
+                    modelConfig = ModelConfig(
+                        nCtx = model.contextLength,
+                        nGpuLayers = nGpuLayers
+                    )
+                }
+                RuntimeType.QAIRT -> {
+                    runtimeIdStr = RuntimeIdValue.QAIRT.value ?: "qairt"
+                    computeUnitStr = ComputeUnitValue.NPU.value ?: "npu"
+                    modelConfig = ModelConfig(
+                        nCtx = 0,
+                        nGpuLayers = 0
+                    )
+                }
+            }
+
+            return LlmCreateInput(
+                model_name = model.name,
+                model_path = model.modelPath,
+                tokenizer_path = model.tokenizerPath,
+                config = modelConfig,
+                runtime_id = runtimeIdStr,
+                compute_unit = computeUnitStr
+            )
+        }
     }
 }

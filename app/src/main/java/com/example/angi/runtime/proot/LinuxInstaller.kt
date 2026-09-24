@@ -15,10 +15,19 @@ import java.io.FileOutputStream
 import java.io.IOException
 
 sealed interface InstallStep {
-    data class Download(val fraction: Float) : InstallStep
+    data object ResolveImage : InstallStep
+    data class Download(
+        val fraction: Float,
+        val downloadedBytes: Long? = null,
+        val totalBytes: Long? = null
+    ) : InstallStep
     data object Extract : InstallStep
     data object Configure : InstallStep
+    data object ProotTest : InstallStep
+    data object AptUpdate : InstallStep
     data class Packages(val packages: List<String>) : InstallStep
+    data object Finalize : InstallStep
+    data object Complete : InstallStep
 }
 
 data class InstallResult(
@@ -32,10 +41,13 @@ private const val PACKAGE_TIMEOUT_SECONDS = 900L
 
 class LinuxInstaller(
     private val paths: LinuxPaths,
-    private val httpClient: OkHttpClient = OkHttpClient()
+    private val httpClient: OkHttpClient = OkHttpClient(),
+    private val extractor: SecureArchiveExtractor = SecureArchiveExtractor(),
+    private val urlProvider: () -> List<String> = { DebianDistroSpec.rootfsUrls() },
+    private val fileDownloader: ((url: String, target: File, onProgress: (Float, Long, Long?) -> Unit) -> Pair<Long, String>)? = null,
+    private val archiveExtractor: ((archive: File, targetDir: File) -> Unit)? = null,
+    private val commandExecutor: ((launcher: ProotLauncher, command: String, timeoutSeconds: Long) -> ProotResult)? = null
 ) {
-    private val extractor = SecureArchiveExtractor()
-
     suspend fun installDebian(onStep: (InstallStep) -> Unit): Result<InstallResult> = withContext(Dispatchers.IO) {
         runCatching {
             paths.ensureLayout()
@@ -48,18 +60,25 @@ class LinuxInstaller(
             paths.deleteInstall()
             paths.ensureLayout()
 
-            val archive = File(paths.root, DebianDistroSpec.ARCHIVE_NAME)
-            val urls = DebianDistroSpec.rootfsUrls()
+            onStep(InstallStep.ResolveImage)
+            val urls = urlProvider()
             check(urls.isNotEmpty()) { "No download URLs available for Debian" }
             val downloadUrl = urls.first()
 
+            val archive = File(paths.root, DebianDistroSpec.ARCHIVE_NAME)
             val (archiveSize, computedSha256) = try {
-                onStep(InstallStep.Download(0f))
-                val stats = downloadFile(downloadUrl, archive) { onStep(InstallStep.Download(it)) }
+                onStep(InstallStep.Download(0f, 0L, null))
+                val stats = downloadFile(downloadUrl, archive) { fraction, downloaded, total ->
+                    onStep(InstallStep.Download(fraction, downloaded, total))
+                }
                 currentCoroutineContext().ensureActive()
 
                 onStep(InstallStep.Extract)
-                extractor.extractTarXz(archive, paths.rootfsDir)
+                if (archiveExtractor != null) {
+                    archiveExtractor.invoke(archive, paths.rootfsDir)
+                } else {
+                    extractor.extractTarXz(archive, paths.rootfsDir)
+                }
                 stats
             } finally {
                 archive.delete()
@@ -81,13 +100,26 @@ class LinuxInstaller(
             )
 
             currentCoroutineContext().ensureActive()
+            onStep(InstallStep.ProotTest)
+            val testResult = executeCommand(launcher, "/bin/sh -c 'echo ANGI_PROOT_OK'", timeoutSeconds = 30L)
+            check(testResult.success && testResult.stdout.contains("ANGI_PROOT_OK")) {
+                "PRoot smoke test failed: ${testResult.failureDetail()}"
+            }
+
+            currentCoroutineContext().ensureActive()
             packageLock.withLock {
+                onStep(InstallStep.AptUpdate)
                 refreshPackageIndex(launcher)
                 currentCoroutineContext().ensureActive()
                 installBasePackages(launcher, onStep)
             }
 
+            currentCoroutineContext().ensureActive()
+            onStep(InstallStep.Finalize)
             paths.writeMarker(DebianDistroSpec.ID)
+
+            onStep(InstallStep.Complete)
+
             InstallResult(
                 archiveSizeBytes = archiveSize,
                 sha256 = computedSha256,
@@ -98,12 +130,24 @@ class LinuxInstaller(
         }
     }
 
-    private fun downloadFile(url: String, target: File, onProgress: (Float) -> Unit): Pair<Long, String> {
+    private fun executeCommand(launcher: ProotLauncher, command: String, timeoutSeconds: Long): ProotResult {
+        return commandExecutor?.invoke(launcher, command, timeoutSeconds)
+            ?: launcher.execute(command, timeoutSeconds = timeoutSeconds)
+    }
+
+    private fun downloadFile(
+        url: String,
+        target: File,
+        onProgress: (Float, Long, Long?) -> Unit
+    ): Pair<Long, String> {
+        if (fileDownloader != null) {
+            return fileDownloader.invoke(url, target, onProgress)
+        }
         val request = Request.Builder().url(url).build()
         httpClient.newCall(request).execute().use { response ->
             if (!response.isSuccessful) throw IOException("Failed to download rootfs: HTTP ${response.code}")
             val body = response.body ?: throw IOException("Empty response body from $url")
-            val totalBytes = body.contentLength()
+            val totalBytes = body.contentLength().takeIf { it > 0 }
             var downloaded = 0L
             val digest = java.security.MessageDigest.getInstance("SHA-256")
 
@@ -116,9 +160,10 @@ class LinuxInstaller(
                     fos.write(buffer, 0, read)
                     digest.update(buffer, 0, read)
                     downloaded += read
-                    if (totalBytes > 0) {
-                        onProgress((downloaded.toFloat() / totalBytes).coerceIn(0f, 1f))
-                    }
+                    val frac = if (totalBytes != null && totalBytes > 0) {
+                        (downloaded.toFloat() / totalBytes).coerceIn(0f, 1f)
+                    } else 0f
+                    onProgress(frac, downloaded, totalBytes)
                 }
             }
             val sha256Hex = digest.digest().joinToString("") { "%02x".format(it) }
@@ -127,7 +172,7 @@ class LinuxInstaller(
     }
 
     private fun refreshPackageIndex(launcher: ProotLauncher) {
-        val result = launcher.execute("apt-get update", timeoutSeconds = UPDATE_TIMEOUT_SECONDS)
+        val result = executeCommand(launcher, "apt-get update", timeoutSeconds = UPDATE_TIMEOUT_SECONDS)
         check(result.success) { "apt-get update failed: ${result.failureDetail()}" }
     }
 
@@ -135,7 +180,7 @@ class LinuxInstaller(
         val packages = DebianDistroSpec.basePackages
         onStep(InstallStep.Packages(packages))
         val cmd = "apt-get install -y --no-install-recommends " + packages.joinToString(" ")
-        val result = launcher.execute(cmd, timeoutSeconds = PACKAGE_TIMEOUT_SECONDS)
+        val result = executeCommand(launcher, cmd, timeoutSeconds = PACKAGE_TIMEOUT_SECONDS)
         check(result.success) { "Failed to install base packages: ${result.failureDetail()}" }
     }
 

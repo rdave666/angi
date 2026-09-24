@@ -51,6 +51,12 @@ interface ModelDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertModel(model: ModelEntity)
 
+    @Query("UPDATE models SET preferredCompute = :compute WHERE id = :id")
+    suspend fun updateModelCompute(id: String, compute: String)
+
+    @Query("UPDATE models SET lifecycleState = :state WHERE id = :id")
+    suspend fun updateModelLifecycleState(id: String, state: String)
+
     @Delete
     suspend fun deleteModel(model: ModelEntity)
 

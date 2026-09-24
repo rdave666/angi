@@ -38,6 +38,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -49,6 +50,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
@@ -144,6 +146,27 @@ fun DiagnosticsScreen(
                     border = androidx.compose.foundation.BorderStroke(1.dp, AngiSecondary.copy(alpha = 0.5f))
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
+                        val env = uiState.environments.firstOrNull()
+                        val status = env?.status ?: LinuxEnvironmentStatus.NOT_INSTALLED
+                        val isInstalling = uiState.installRunning ||
+                            status in listOf(
+                                LinuxEnvironmentStatus.DOWNLOADING,
+                                LinuxEnvironmentStatus.VERIFYING,
+                                LinuxEnvironmentStatus.EXTRACTING
+                            )
+                        val statusColor = when {
+                            isInstalling -> AngiSecondary
+                            status == LinuxEnvironmentStatus.INSTALLED -> AngiSuccess
+                            status == LinuxEnvironmentStatus.FAILED -> androidx.compose.ui.graphics.Color(0xFFFF5252)
+                            else -> AngiTextTertiary
+                        }
+                        val statusLabel = when {
+                            isInstalling -> "INSTALLING"
+                            status == LinuxEnvironmentStatus.INSTALLED -> "INSTALLED"
+                            status == LinuxEnvironmentStatus.FAILED -> "FAILED"
+                            else -> "NOT INSTALLED"
+                        }
+
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
@@ -163,23 +186,6 @@ fun DiagnosticsScreen(
                                     fontSize = 15.sp,
                                     color = AngiTextPrimary
                                 )
-                            }
-
-                            val env = uiState.environments.firstOrNull()
-                            val status = env?.status ?: LinuxEnvironmentStatus.NOT_INSTALLED
-                            val statusColor = when (status) {
-                                LinuxEnvironmentStatus.INSTALLED -> AngiSuccess
-                                LinuxEnvironmentStatus.FAILED -> androidx.compose.ui.graphics.Color(0xFFFF5252)
-                                LinuxEnvironmentStatus.DOWNLOADING, LinuxEnvironmentStatus.VERIFYING, LinuxEnvironmentStatus.EXTRACTING -> AngiSecondary
-                                LinuxEnvironmentStatus.NOT_INSTALLED -> AngiTextTertiary
-                            }
-                            val statusLabel = when (status) {
-                                LinuxEnvironmentStatus.INSTALLED -> "INSTALLED"
-                                LinuxEnvironmentStatus.FAILED -> "FAILED"
-                                LinuxEnvironmentStatus.DOWNLOADING -> "DOWNLOADING"
-                                LinuxEnvironmentStatus.VERIFYING -> "VERIFYING"
-                                LinuxEnvironmentStatus.EXTRACTING -> "EXTRACTING"
-                                LinuxEnvironmentStatus.NOT_INSTALLED -> "NOT INSTALLED"
                             }
 
                             Surface(
@@ -203,9 +209,9 @@ fun DiagnosticsScreen(
                         val def = currentEnv?.definition
                         val meta = currentEnv?.metadata
 
-                        DiagRow("Distribution", def?.distribution ?: "Alpine Linux")
-                        DiagRow("Version", def?.version ?: "3.21.8")
-                        DiagRow("Architecture", def?.architecture ?: "aarch64")
+                        DiagRow("Distribution", def?.distribution ?: "Debian 12 (Bookworm)")
+                        DiagRow("Version", def?.version ?: "12 (Bookworm)")
+                        DiagRow("Architecture", def?.architecture ?: "arm64")
                         DiagRow("Virtual Workspace", "/workspace")
                         DiagRow("Expected SHA-256", (def?.expectedSha256?.take(16) ?: "") + "...")
                         if (meta?.actualSha256 != null) {
@@ -221,58 +227,116 @@ fun DiagnosticsScreen(
                             DiagRow("Last Error", meta?.lastError ?: "")
                         }
 
-                        if (uiState.environmentActionMessage != null) {
+                        // Live installation progress and stage
+                        if (isInstalling) {
+                            Spacer(modifier = Modifier.height(12.dp))
+                            if (uiState.downloadProgress != null) {
+                                val pct = ((uiState.downloadProgress ?: 0f) * 100).toInt()
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    LinearProgressIndicator(
+                                        progress = { uiState.downloadProgress ?: 0f },
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .height(8.dp)
+                                            .clip(RoundedCornerShape(4.dp))
+                                            .testTag("install_progress_bar"),
+                                        color = AngiPrimary,
+                                        trackColor = AngiDarkSurfaceVariant
+                                    )
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Text(
+                                        text = "$pct%",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = AngiPrimary
+                                    )
+                                }
+                            } else {
+                                LinearProgressIndicator(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(8.dp)
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .testTag("install_progress_bar"),
+                                    color = AngiSecondary,
+                                    trackColor = AngiDarkSurfaceVariant
+                                )
+                            }
+
                             Spacer(modifier = Modifier.height(6.dp))
                             Text(
-                                text = uiState.environmentActionMessage ?: "",
-                                fontSize = 11.sp,
-                                color = AngiSecondary
+                                text = uiState.currentInstallMessage ?: "Installing...",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = AngiTextPrimary,
+                                modifier = Modifier.testTag("install_stage_text")
+                            )
+                        } else if (uiState.currentInstallMessage != null) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            val isErr = status == LinuxEnvironmentStatus.FAILED || uiState.currentInstallStage == "Failed"
+                            Text(
+                                text = uiState.currentInstallMessage ?: "",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = if (isErr) androidx.compose.ui.graphics.Color(0xFFFF5252) else AngiSuccess,
+                                modifier = Modifier.testTag("install_stage_text")
                             )
                         }
 
                         Spacer(modifier = Modifier.height(12.dp))
 
                         // Actions
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            if (currentEnv?.status != LinuxEnvironmentStatus.INSTALLED) {
-                                Button(
-                                    onClick = {
-                                        def?.let { viewModel.downloadEnvironment(it.id) }
-                                    },
-                                    modifier = Modifier.weight(1f).testTag("btn_download_env"),
-                                    enabled = !uiState.isEnvironmentActionRunning,
-                                    colors = ButtonDefaults.buttonColors(containerColor = AngiPrimary)
-                                ) {
-                                    Icon(imageVector = Icons.Default.Download, contentDescription = null, modifier = Modifier.size(14.dp))
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Download", fontSize = 11.sp)
-                                }
-
-                                Button(
-                                    onClick = {
-                                        def?.let { viewModel.installEnvironment(it.id) }
-                                    },
-                                    modifier = Modifier.weight(1f).testTag("btn_install_env"),
-                                    enabled = !uiState.isEnvironmentActionRunning,
-                                    colors = ButtonDefaults.buttonColors(containerColor = AngiSecondary)
-                                ) {
-                                    Text("Install", fontSize = 11.sp)
-                                }
-                            } else {
+                        if (status != LinuxEnvironmentStatus.INSTALLED) {
+                            Button(
+                                onClick = { viewModel.installDebian() },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("btn_install_debian"),
+                                enabled = !isInstalling && !uiState.isEnvironmentActionRunning,
+                                colors = ButtonDefaults.buttonColors(containerColor = AngiPrimary)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Download,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = if (status == LinuxEnvironmentStatus.FAILED) "Reinstall Debian" else "Install Debian",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        } else {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
                                 Button(
                                     onClick = {
                                         def?.let { viewModel.runRwSelfTest(it.id) }
                                     },
-                                    modifier = Modifier.weight(1f).testTag("btn_selftest_env"),
-                                    enabled = !uiState.isEnvironmentActionRunning,
+                                    modifier = Modifier.weight(1.2f).testTag("btn_selftest_env"),
+                                    enabled = !isInstalling && !uiState.isEnvironmentActionRunning,
                                     colors = ButtonDefaults.buttonColors(containerColor = AngiSecondary)
                                 ) {
                                     Icon(imageVector = Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(14.dp))
                                     Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Run R/W Test", fontSize = 11.sp)
+                                    Text("Run Self-Test", fontSize = 11.sp)
+                                }
+
+                                OutlinedButton(
+                                    onClick = { viewModel.installDebian() },
+                                    modifier = Modifier.weight(1f).testTag("btn_reinstall_debian"),
+                                    enabled = !isInstalling && !uiState.isEnvironmentActionRunning
+                                ) {
+                                    Icon(imageVector = Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(14.dp), tint = AngiSecondary)
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Reinstall", fontSize = 11.sp, color = AngiSecondary)
                                 }
 
                                 OutlinedButton(
@@ -280,7 +344,7 @@ fun DiagnosticsScreen(
                                         def?.let { viewModel.deleteEnvironment(it.id) }
                                     },
                                     modifier = Modifier.weight(1f).testTag("btn_delete_env"),
-                                    enabled = !uiState.isEnvironmentActionRunning
+                                    enabled = !isInstalling && !uiState.isEnvironmentActionRunning
                                 ) {
                                     Icon(imageVector = Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(14.dp), tint = androidx.compose.ui.graphics.Color(0xFFFF5252))
                                     Spacer(modifier = Modifier.width(4.dp))

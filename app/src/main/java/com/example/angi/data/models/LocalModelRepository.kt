@@ -25,6 +25,8 @@ interface ModelRepository {
     fun getModels(): Flow<List<ModelDescriptor>>
     suspend fun getModelById(id: String): ModelDescriptor?
     suspend fun registerModel(model: ModelDescriptor)
+    suspend fun updateModelCompute(id: String, computeUnit: ComputeUnit)
+    suspend fun updateModelLifecycleState(id: String, lifecycleState: com.example.angi.domain.models.ModelLifecycleState)
     suspend fun importModelFromUri(uri: Uri, displayName: String? = null): Result<ModelDescriptor>
     suspend fun deleteModel(id: String): Result<Unit>
     suspend fun getActiveModel(): ModelDescriptor?
@@ -114,7 +116,7 @@ class LocalModelRepository(
             val meta = when {
                 lowerName.endsWith(".gguf") -> {
                     if (isGgufHeaderValid) {
-                        ImportMetadata(ModelFormat.GGUF, RuntimeType.LLAMA_CPP, ComputeUnit.GPU, ComputeUnit.CPU, com.example.angi.domain.models.ModelLifecycleState.AVAILABLE, "Valid GGUF model runnable on llama.cpp.")
+                        ImportMetadata(ModelFormat.GGUF, RuntimeType.LLAMA_CPP, ComputeUnit.CPU, ComputeUnit.CPU, com.example.angi.domain.models.ModelLifecycleState.AVAILABLE, "Valid GGUF model runnable on llama.cpp (defaults to CPU).")
                     } else {
                         ImportMetadata(ModelFormat.GGUF, RuntimeType.LLAMA_CPP, ComputeUnit.CPU, ComputeUnit.CPU, com.example.angi.domain.models.ModelLifecycleState.FAILED, "Header validation failed: File is not a valid GGUF.")
                     }
@@ -133,7 +135,7 @@ class LocalModelRepository(
                 }
                 else -> {
                     if (isGgufHeaderValid) {
-                        ImportMetadata(ModelFormat.GGUF, RuntimeType.LLAMA_CPP, ComputeUnit.GPU, ComputeUnit.CPU, com.example.angi.domain.models.ModelLifecycleState.AVAILABLE, "Imported GGUF model.")
+                        ImportMetadata(ModelFormat.GGUF, RuntimeType.LLAMA_CPP, ComputeUnit.CPU, ComputeUnit.CPU, com.example.angi.domain.models.ModelLifecycleState.AVAILABLE, "Imported GGUF model (defaults to CPU).")
                     } else {
                         ImportMetadata(ModelFormat.GGUF, RuntimeType.LLAMA_CPP, ComputeUnit.CPU, ComputeUnit.CPU, com.example.angi.domain.models.ModelLifecycleState.FAILED, "Unrecognized or invalid model format.")
                     }
@@ -166,11 +168,22 @@ class LocalModelRepository(
             )
 
             registerModel(descriptor)
-            if (descriptor.isReady) {
-                setActiveModel(descriptor.id)
-            }
             descriptor
         }
+    }
+
+    override suspend fun updateModelCompute(id: String, computeUnit: ComputeUnit): Unit = withContext(Dispatchers.IO) {
+        dao.updateModelCompute(id, computeUnit.name)
+        dao.getModelById(id)?.let { entity ->
+            saveMetadataJson(entity.toDomain())
+        }
+    }
+
+    override suspend fun updateModelLifecycleState(
+        id: String,
+        lifecycleState: com.example.angi.domain.models.ModelLifecycleState
+    ): Unit = withContext(Dispatchers.IO) {
+        dao.updateModelLifecycleState(id, lifecycleState.name)
     }
 
     override suspend fun deleteModel(id: String): Result<Unit> = withContext(Dispatchers.IO) {
@@ -245,7 +258,7 @@ class LocalModelRepository(
                 family = "Llama",
                 format = ModelFormat.GGUF,
                 runtime = RuntimeType.LLAMA_CPP,
-                preferredCompute = ComputeUnit.GPU,
+                preferredCompute = ComputeUnit.CPU,
                 fallbackCompute = ComputeUnit.CPU,
                 modelPath = llamaPath,
                 parameterCount = "1.2B",
@@ -254,7 +267,7 @@ class LocalModelRepository(
                 isBundled = false,
                 lifecycleState = if (llamaExists) com.example.angi.domain.models.ModelLifecycleState.AVAILABLE else com.example.angi.domain.models.ModelLifecycleState.MISSING,
                 modality = Modality.TEXT_ONLY,
-                description = "Llama 3.2 1B GGUF profile with GPU/CPU execution."
+                description = "Llama 3.2 1B GGUF profile with CPU execution."
             )
             registerModel(llamaPreset)
 
@@ -279,10 +292,6 @@ class LocalModelRepository(
                 description = "Qualcomm AI Engine Direct bundle profile for SM8550 / Snapdragon 8 Gen 2."
             )
             registerModel(phiPreset)
-
-            if (qairtPreset.isReady) {
-                setActiveModel(qairtPreset.id)
-            }
         }
 
         // Wire ModelManagerWrapper into local model repository so GenieX models appear alongside imported models

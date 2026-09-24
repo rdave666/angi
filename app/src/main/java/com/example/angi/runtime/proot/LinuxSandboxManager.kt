@@ -25,10 +25,10 @@ import java.util.concurrent.ConcurrentHashMap
  * Single source of truth for PRoot Debian ARM64 runtime and workspace.
  */
 class LinuxSandboxManager(
-    context: Context
+    context: Context,
+    val paths: LinuxPaths = LinuxPaths(context),
+    val installer: LinuxInstaller = LinuxInstaller(paths)
 ) : LinuxEnvironmentManager {
-    val paths = LinuxPaths(context)
-    val installer = LinuxInstaller(paths)
 
     private val _installStep = MutableStateFlow<InstallStep?>(null)
     val installStep: StateFlow<InstallStep?> = _installStep.asStateFlow()
@@ -75,8 +75,9 @@ class LinuxSandboxManager(
             installed -> LinuxEnvironmentStatus.INSTALLED
             _installStep.value != null -> {
                 when (_installStep.value) {
-                    is InstallStep.Download -> LinuxEnvironmentStatus.DOWNLOADING
+                    is InstallStep.ResolveImage, is InstallStep.Download -> LinuxEnvironmentStatus.DOWNLOADING
                     is InstallStep.Extract -> LinuxEnvironmentStatus.EXTRACTING
+                    is InstallStep.Complete -> LinuxEnvironmentStatus.INSTALLED
                     else -> LinuxEnvironmentStatus.VERIFYING
                 }
             }
@@ -106,13 +107,13 @@ class LinuxSandboxManager(
         val result = installer.installDebian { step ->
             _installStep.value = step
             when (step) {
-                is InstallStep.Download -> updateStatus(LinuxEnvironmentStatus.DOWNLOADING)
+                is InstallStep.ResolveImage, is InstallStep.Download -> updateStatus(LinuxEnvironmentStatus.DOWNLOADING)
                 is InstallStep.Extract -> updateStatus(LinuxEnvironmentStatus.EXTRACTING)
-                is InstallStep.Configure, is InstallStep.Packages -> updateStatus(LinuxEnvironmentStatus.VERIFYING)
+                is InstallStep.Configure, is InstallStep.ProotTest, is InstallStep.AptUpdate, is InstallStep.Packages, is InstallStep.Finalize -> updateStatus(LinuxEnvironmentStatus.VERIFYING)
+                is InstallStep.Complete -> updateStatus(LinuxEnvironmentStatus.INSTALLED)
             }
             onStepProgress?.invoke(step)
         }
-        _installStep.value = null
         if (result.isSuccess) {
             val installDetails = result.getOrNull()
             val actualChecksum = installDetails?.sha256 ?: "NOT VERIFIED"
@@ -134,6 +135,7 @@ class LinuxSandboxManager(
             updateStatus(LinuxEnvironmentStatus.INSTALLED)
         } else {
             val err = result.exceptionOrNull()?.message ?: "Installation failed"
+            _installStep.value = null
             updateStatus(LinuxEnvironmentStatus.FAILED, err)
         }
         refreshEnvironments()
@@ -154,6 +156,7 @@ class LinuxSandboxManager(
             resetAllShells()
             paths.deleteInstall()
             getMetadataFile().delete()
+            _installStep.value = null
             refreshEnvironments()
             Unit
         }

@@ -65,7 +65,7 @@ data class ModelEntity(
         family = family,
         format = runCatching { ModelFormat.valueOf(format) }.getOrDefault(ModelFormat.GGUF),
         runtime = runCatching { RuntimeType.valueOf(runtime) }.getOrDefault(RuntimeType.LLAMA_CPP),
-        preferredCompute = runCatching { ComputeUnit.valueOf(preferredCompute) }.getOrDefault(ComputeUnit.NPU),
+        preferredCompute = runCatching { ComputeUnit.valueOf(preferredCompute) }.getOrDefault(ComputeUnit.CPU),
         fallbackCompute = runCatching { ComputeUnit.valueOf(fallbackCompute) }.getOrDefault(ComputeUnit.CPU),
         modelPath = modelPath,
         tokenizerPath = tokenizerPath,

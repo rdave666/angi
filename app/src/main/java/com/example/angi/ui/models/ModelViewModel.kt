@@ -43,11 +43,21 @@ class ModelViewModel : ViewModel() {
     }
 
     fun selectActiveModel(model: ModelDescriptor) {
+        loadModel(model)
+    }
+
+    fun loadModel(model: ModelDescriptor) {
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isLoading = true, statusMessage = "Loading ${model.name}...")
+            _uiState.value = _uiState.value.copy(
+                isLoading = true,
+                statusMessage = "Loading ${model.name} on ${model.preferredCompute.name}...",
+                errorMessage = null
+            )
+            modelRepo.updateModelLifecycleState(model.id, com.example.angi.domain.models.ModelLifecycleState.LOADING)
             val result = inferenceEngine.loadModel(model)
             if (result.isSuccess) {
                 modelRepo.setActiveModel(model.id)
+                modelRepo.updateModelLifecycleState(model.id, com.example.angi.domain.models.ModelLifecycleState.LOADED)
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
                     activeModel = model,
@@ -56,41 +66,42 @@ class ModelViewModel : ViewModel() {
                 )
             } else {
                 val errorMsg = result.exceptionOrNull()?.message ?: "Unknown model load error"
+                modelRepo.updateModelLifecycleState(model.id, com.example.angi.domain.models.ModelLifecycleState.FAILED)
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
                     statusMessage = null,
-                    errorMessage = "Failed to load model: $errorMsg"
+                    errorMessage = "Failed to load model on ${model.preferredCompute.name}: $errorMsg"
                 )
             }
         }
     }
 
+    fun updateModelCompute(modelId: String, computeUnit: com.example.angi.domain.models.ComputeUnit) {
+        viewModelScope.launch {
+            modelRepo.updateModelCompute(modelId, computeUnit)
+        }
+    }
+
     fun importModel(uri: Uri) {
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isLoading = true, statusMessage = "Importing model into local storage...")
+            _uiState.value = _uiState.value.copy(
+                isLoading = true,
+                statusMessage = "Importing model weights...",
+                errorMessage = null
+            )
             val result = modelRepo.importModelFromUri(uri)
             if (result.isSuccess) {
-                val imported = result.getOrNull()!!
-                val loadResult = inferenceEngine.loadModel(imported)
-                if (loadResult.isSuccess) {
-                    modelRepo.setActiveModel(imported.id)
-                    _uiState.value = _uiState.value.copy(
-                        isLoading = false,
-                        activeModel = imported,
-                        statusMessage = "Successfully imported and loaded ${imported.name} (${imported.format})",
-                        errorMessage = null
-                    )
-                } else {
-                    _uiState.value = _uiState.value.copy(
-                        isLoading = false,
-                        statusMessage = "Imported ${imported.name}, but failed to load: ${loadResult.exceptionOrNull()?.message}",
-                        errorMessage = null
-                    )
-                }
+                val imported = result.getOrThrow()
+                _uiState.value = _uiState.value.copy(
+                    isLoading = false,
+                    statusMessage = "Imported ${imported.name} (${imported.format}). Ready to load on ${imported.preferredCompute.name}.",
+                    errorMessage = null
+                )
             } else {
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
-                    errorMessage = "Failed to import model: ${result.exceptionOrNull()?.localizedMessage}"
+                    statusMessage = null,
+                    errorMessage = "Failed to import model: ${result.exceptionOrNull()?.localizedMessage ?: result.exceptionOrNull()?.message}"
                 )
             }
         }

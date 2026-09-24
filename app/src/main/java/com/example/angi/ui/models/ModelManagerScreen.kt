@@ -20,18 +20,24 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
@@ -50,11 +56,14 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.angi.domain.models.ComputeUnit
 import com.example.angi.domain.models.ModelDescriptor
+import com.example.angi.domain.models.ModelLifecycleState
 import com.example.ui.theme.AngiDarkBackground
 import com.example.ui.theme.AngiDarkSurface
 import com.example.ui.theme.AngiDarkSurfaceElevated
 import com.example.ui.theme.AngiDarkSurfaceVariant
+import com.example.ui.theme.AngiError
 import com.example.ui.theme.AngiPrimary
 import com.example.ui.theme.AngiSecondary
 import com.example.ui.theme.AngiSuccess
@@ -123,6 +132,48 @@ fun ModelManagerScreen(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            // Requirement 5: Show full load failure in Model screen
+            if (uiState.errorMessage != null) {
+                item {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("model_error_card"),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(containerColor = AngiError.copy(alpha = 0.12f)),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, AngiError)
+                    ) {
+                        Column(modifier = Modifier.padding(14.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.Warning,
+                                    contentDescription = "Error",
+                                    tint = AngiError,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Model Load Failure",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp,
+                                    color = AngiError
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(8.dp))
+                            SelectionContainer {
+                                Text(
+                                    text = uiState.errorMessage ?: "",
+                                    fontSize = 12.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    color = AngiTextPrimary,
+                                    lineHeight = 16.sp
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
             // Status banner
             if (uiState.statusMessage != null || uiState.isLoading) {
                 item {
@@ -171,7 +222,7 @@ fun ModelManagerScreen(
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "Qualcomm Snapdragon Runtime Paths",
+                                text = "Snapdragon 8 Gen 2 Runtime Architecture",
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 14.sp,
                                 color = AngiTextPrimary
@@ -179,7 +230,7 @@ fun ModelManagerScreen(
                         }
                         Spacer(modifier = Modifier.height(6.dp))
                         Text(
-                            text = "ANGI supports both Qualcomm AI Engine Direct (QAIRT NPU) bundles and GGUF llama.cpp models. Models persist in application-controlled storage and survive app restarts.",
+                            text = "Imported GGUF models default to CPU for safe validation. Select compute (CPU, GPU, NPU, HYBRID) and tap Load Model to initialize native Qualcomm GenieX execution.",
                             fontSize = 12.sp,
                             color = AngiTextSecondary,
                             lineHeight = 18.sp
@@ -194,8 +245,10 @@ fun ModelManagerScreen(
                 ModelCard(
                     model = model,
                     isActive = isActive,
-                    onSelect = { viewModel.selectActiveModel(model) },
-                    onDelete = { viewModel.deleteModel(model.id) }
+                    isBusy = uiState.isLoading,
+                    onSelect = { viewModel.loadModel(model) },
+                    onDelete = { viewModel.deleteModel(model.id) },
+                    onComputeSelected = { compute -> viewModel.updateModelCompute(model.id, compute) }
                 )
             }
         }
@@ -206,9 +259,14 @@ fun ModelManagerScreen(
 fun ModelCard(
     model: ModelDescriptor,
     isActive: Boolean,
+    isBusy: Boolean,
     onSelect: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    onComputeSelected: (ComputeUnit) -> Unit
 ) {
+    val isModelLoading = model.lifecycleState == ModelLifecycleState.LOADING
+    val isModelFailed = model.lifecycleState == ModelLifecycleState.FAILED
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
@@ -217,7 +275,11 @@ fun ModelCard(
         ),
         border = androidx.compose.foundation.BorderStroke(
             1.dp,
-            if (isActive) AngiPrimary else AngiDarkSurfaceVariant
+            when {
+                isActive -> AngiPrimary
+                isModelFailed -> AngiError.copy(alpha = 0.6f)
+                else -> AngiDarkSurfaceVariant
+            }
         )
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
@@ -227,36 +289,122 @@ fun ModelCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
                         Text(
                             text = model.name,
                             fontWeight = FontWeight.Bold,
                             fontSize = 15.sp,
                             color = AngiTextPrimary
                         )
-                        if (isActive) {
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Surface(
-                                shape = RoundedCornerShape(4.dp),
-                                color = AngiSuccess.copy(alpha = 0.2f),
-                                border = androidx.compose.foundation.BorderStroke(1.dp, AngiSuccess)
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                    verticalAlignment = Alignment.CenterVertically
+
+                        // Lifecycle badge
+                        when {
+                            isActive -> {
+                                Surface(
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = AngiSuccess.copy(alpha = 0.2f),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, AngiSuccess)
                                 ) {
-                                    Icon(
-                                        imageVector = Icons.Default.CheckCircle,
-                                        contentDescription = "Active",
-                                        tint = AngiSuccess,
-                                        modifier = Modifier.size(10.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(3.dp))
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.CheckCircle,
+                                            contentDescription = "Active",
+                                            tint = AngiSuccess,
+                                            modifier = Modifier.size(10.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(3.dp))
+                                        Text(
+                                            text = "ACTIVE",
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = AngiSuccess
+                                        )
+                                    }
+                                }
+                            }
+                            isModelLoading -> {
+                                Surface(
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = AngiTertiary.copy(alpha = 0.2f),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, AngiTertiary)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(10.dp),
+                                            strokeWidth = 1.5.dp,
+                                            color = AngiTertiary
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(
+                                            text = "LOADING",
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = AngiTertiary
+                                        )
+                                    }
+                                }
+                            }
+                            isModelFailed -> {
+                                Surface(
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = AngiError.copy(alpha = 0.2f),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, AngiError)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.ErrorOutline,
+                                            contentDescription = "Failed",
+                                            tint = AngiError,
+                                            modifier = Modifier.size(10.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(3.dp))
+                                        Text(
+                                            text = "FAILED",
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = AngiError
+                                        )
+                                    }
+                                }
+                            }
+                            model.lifecycleState == ModelLifecycleState.AVAILABLE -> {
+                                Surface(
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = AngiPrimary.copy(alpha = 0.15f),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, AngiPrimary.copy(alpha = 0.4f))
+                                ) {
                                     Text(
-                                        text = "ACTIVE",
+                                        text = "AVAILABLE",
                                         fontSize = 10.sp,
                                         fontWeight = FontWeight.Bold,
-                                        color = AngiSuccess
+                                        color = AngiPrimary,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+                            else -> {
+                                Surface(
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = AngiDarkSurfaceVariant,
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, AngiTextTertiary.copy(alpha = 0.3f))
+                                ) {
+                                    Text(
+                                        text = model.lifecycleState.name,
+                                        fontSize = 10.sp,
+                                        color = AngiTextTertiary,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                     )
                                 }
                             }
@@ -297,6 +445,51 @@ fun ModelCard(
                 ModelTag(label = "Compute: ${model.preferredCompute.name}", color = AngiTertiary)
             }
 
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Requirement 2 & 7: User-selectable compute (CPU / GPU / NPU / HYBRID) before load
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    text = "Compute:",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = AngiTextSecondary
+                )
+                listOf(ComputeUnit.CPU, ComputeUnit.GPU, ComputeUnit.NPU, ComputeUnit.HYBRID).forEach { unit ->
+                    val isSelected = model.preferredCompute == unit
+                    FilterChip(
+                        selected = isSelected,
+                        onClick = { onComputeSelected(unit) },
+                        label = {
+                            Text(
+                                text = unit.name,
+                                fontSize = 10.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                            )
+                        },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = AngiPrimary.copy(alpha = 0.25f),
+                            selectedLabelColor = AngiPrimary,
+                            containerColor = AngiDarkSurfaceVariant.copy(alpha = 0.4f),
+                            labelColor = AngiTextSecondary
+                        ),
+                        border = FilterChipDefaults.filterChipBorder(
+                            borderColor = if (isSelected) AngiPrimary else AngiDarkSurfaceVariant,
+                            selectedBorderColor = AngiPrimary,
+                            borderWidth = 1.dp,
+                            selectedBorderWidth = 1.5.dp,
+                            enabled = true,
+                            selected = isSelected
+                        ),
+                        modifier = Modifier.testTag("compute_${model.id}_${unit.name.lowercase()}")
+                    )
+                }
+            }
+
             Spacer(modifier = Modifier.height(8.dp))
 
             Text(
@@ -324,18 +517,38 @@ fun ModelCard(
                 if (!isActive) {
                     OutlinedButton(
                         onClick = onSelect,
+                        enabled = !isBusy && !isModelLoading,
                         shape = RoundedCornerShape(8.dp),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = AngiPrimary),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, AngiPrimary),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = if (isModelFailed) AngiError else AngiPrimary
+                        ),
+                        border = androidx.compose.foundation.BorderStroke(
+                            1.dp,
+                            if (isModelFailed) AngiError else AngiPrimary
+                        ),
                         modifier = Modifier.testTag("load_model_${model.id}")
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.PlayArrow,
-                            contentDescription = "Load Model",
-                            modifier = Modifier.size(14.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Load Model", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        if (isModelLoading) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(12.dp),
+                                strokeWidth = 2.dp,
+                                color = AngiPrimary
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Loading...", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        } else {
+                            Icon(
+                                imageVector = if (isModelFailed) Icons.Default.Refresh else Icons.Default.PlayArrow,
+                                contentDescription = if (isModelFailed) "Retry Load" else "Load Model",
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = if (isModelFailed) "Retry Load" else "Load Model",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                     }
                 }
             }

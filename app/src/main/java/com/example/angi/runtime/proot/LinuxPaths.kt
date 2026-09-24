@@ -21,7 +21,8 @@ class LinuxPaths(
     val tmpDir: File get() = File(root, "tmp")
     val markerFile: File get() = File(root, "install")
 
-    val nativeLibDir: String get() = appContext.applicationInfo.nativeLibraryDir
+    val nativeLibDir: String get() = appContext.applicationInfo.nativeLibraryDir?.takeIf { it.isNotBlank() }
+        ?: File(appContext.filesDir, "lib").absolutePath
     val prootPath: String get() = File(nativeLibDir, "libproot.so").absolutePath
     val tallocTarget: File get() = File(root, "libtalloc.so.2")
     val libDir: String get() = root.absolutePath
