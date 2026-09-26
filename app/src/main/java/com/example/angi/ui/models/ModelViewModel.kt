@@ -48,7 +48,13 @@ class ModelViewModel : ViewModel() {
 
     fun loadModel(model: ModelDescriptor) {
         viewModelScope.launch {
+            val previousActive = _uiState.value.activeModel ?: modelRepo.getActiveModel()
+            modelRepo.clearActiveModel()
+            if (previousActive != null && previousActive.id != model.id) {
+                modelRepo.updateModelLifecycleState(previousActive.id, com.example.angi.domain.models.ModelLifecycleState.AVAILABLE)
+            }
             _uiState.value = _uiState.value.copy(
+                activeModel = null,
                 isLoading = true,
                 statusMessage = "Loading ${model.name} on ${model.preferredCompute.name}...",
                 errorMessage = null
@@ -66,9 +72,11 @@ class ModelViewModel : ViewModel() {
                 )
             } else {
                 val errorMsg = result.exceptionOrNull()?.message ?: "Unknown model load error"
+                modelRepo.clearActiveModel()
                 modelRepo.updateModelLifecycleState(model.id, com.example.angi.domain.models.ModelLifecycleState.FAILED)
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
+                    activeModel = null,
                     statusMessage = null,
                     errorMessage = "Failed to load model on ${model.preferredCompute.name}: $errorMsg"
                 )
@@ -78,6 +86,13 @@ class ModelViewModel : ViewModel() {
 
     fun unloadActiveModel() {
         viewModelScope.launch {
+            val currentInfo = inferenceEngine.runtimeInfo()
+            if (currentInfo.runtimeState == com.example.angi.domain.inference.RuntimeState.GENERATION_ACTIVE) {
+                _uiState.value = _uiState.value.copy(
+                    errorMessage = "Cannot unload model while generation is active"
+                )
+                return@launch
+            }
             val currentActive = _uiState.value.activeModel ?: modelRepo.getActiveModel()
             _uiState.value = _uiState.value.copy(
                 isLoading = true,

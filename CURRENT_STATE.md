@@ -1,6 +1,7 @@
 # ANGI — Current System State
 
 **Current App Version**: `0.2.0` (build `12`)  
+**Current HEAD**: `main`  
 **Last Updated**: 2026-09-26
 
 ---
@@ -24,7 +25,11 @@
    - Diagnostics logged before `LlmWrapper.build()`: model path, existence, byte size, GGUF magic, runtime ID, compute unit, nCtx, nGpuLayers, SoC / device ABI, and GenieX SDK initialization state.
    - [VERIFIED]
 
-2. **Debian Rootfs Extraction & Symlink Security (`SecureArchiveExtractor`)**:
+2. **Physical S23 Device Model Verification**:
+   - Qwen 0.6B GGUF imported, loaded on CPU, and generated streaming tokens natively on physical Samsung Galaxy S23 Ultra (SM-S918B).
+   - [VERIFIED]
+
+3. **Debian Rootfs Extraction & Symlink Security (`SecureArchiveExtractor`)**:
    - Guest-absolute TAR symlinks (e.g. `/etc/alternatives/pager`) treated as paths inside rootfs and rewritten to relative links (`../../etc/alternatives/pager`) preventing Android host `/` leakage.
    - Lexical normalized containment checks without following already-created guest links (eliminated `canonicalFile` pitfalls).
    - Preserves TAR executable mode bits parsed from header mode field offset 100.
@@ -34,51 +39,51 @@
    - All 8 test scenarios verified in unit test suite.
    - [VERIFIED]
 
-3. **Unified Linux Ownership & Single Storage Tree**:
+4. **Unified Linux Ownership & Single Storage Tree**:
    - `LinuxSandboxManager` is the single PRoot/Debian environment manager.
    - Single storage tree strictly at `filesDir/linux-sandbox/` (`rootfs/`, `workspace/`, `tmp/`).
    - Removed runtime usage and fallback routing of `DefaultLinuxEnvironmentManager` in `AngiApp`, `DiagnosticsViewModel`, and tool pipelines.
    - [VERIFIED]
 
-4. **Filesystem Convergence**:
+5. **Filesystem Convergence**:
    - `linux_exec("echo hello > /workspace/test.txt")` and `linux_read_file("/workspace/test.txt")` address the identical physical file (`paths.workspaceDir`).
    - Tested and verified via regression tests.
    - [VERIFIED]
 
-5. **Per-Conversation Shell State**:
+6. **Per-Conversation Shell State**:
    - Removed `"default_conversation"`.
    - Real `conversationId` propagated via `ToolExecutionContext` from `ConversationService` through `ToolExecutor` into `LinuxExecTool` and `sandboxManager.shellFor(conversationId)`.
    - Context is not exposed as a model-callable parameter.
    - [VERIFIED]
 
-6. **Install Metadata & Checksum Integrity**:
+7. **Install Metadata & Checksum Integrity**:
    - SHA-256 computed over actual downloaded archive bytes via `MessageDigest` during streaming download.
    - Real checksum stored in metadata; `expectedSha256` explicitly set to `"NOT VERIFIED"` for rolling LXC images unless statically pinned.
    - Fake checksum strings eliminated.
    - [VERIFIED]
 
-7. **Diagnostics Integration & Progress Verification**:
+8. **Diagnostics Integration & Progress Verification**:
    - `DiagnosticsViewModel` bound directly to `LinuxSandboxManager` for lifecycle (download, install, delete, R/W self-test).
    - `DiagnosticsScreen` updated to render reactive install progress state, granular step badges, and status color mapping.
    - `LinuxInstallProgressTest` comprehensive Robolectric test suite (5 tests covering step sequence, progress event streaming, failure isolation, and ViewModel state transitions) all verified passing.
    - [VERIFIED]
 
-8. **Versioned Builds & UI Version Display**:
-   - Gradle `app/build.gradle.kts` single source of truth: `versionName = "0.2.0"`, `versionCode = 12`.
+9. **Versioned Builds & Strict CI Release Automation**:
+   - Gradle `app/build.gradle.kts` single source of truth: `versionName = "0.2.0"`, `versionCode = 12`. No hard-coded fallbacks in CI.
    - Dynamic version display from `BuildConfig` in `SettingsScreen` and `DiagnosticsScreen` under App Version & Build.
    - Subtle monospace footer (`ANGI v0.2.0 (build 12)`) rendered across Settings and Diagnostics screens.
-   - CI workflow (`.github/workflows/build-apk.yml`) extracts Gradle `versionName`/`versionCode` dynamically, creates `angi-v0.2.0-build12-debug.apk`, and uploads as artifact + rolling GitHub Release asset on `dev-latest`.
+   - CI workflow (`.github/workflows/build-apk.yml`) extracts Gradle `versionName`/`versionCode` dynamically, creates `angi-v0.2.0-build12-debug.apk`, force-updates `dev-latest` tag to current `${GITHUB_SHA}`, and updates `ANGI Development Build` release asset on `dev-latest`.
    - [VERIFIED]
 
-9. **Model Unload Control (`InferenceEngine`, `ModelViewModel`, `ChatScreen`, `ModelManagerScreen`)**:
-   - `InferenceEngine.unloadModel()` closes native `LlmWrapper`, clears active LLM and model references, resets runtime state to READY, and preserves imported files on disk.
-   - `ModelViewModel.unloadActiveModel()` and `ChatViewModel.unloadActiveModel()` clear persisted active model ID, transition model state `LOADED` -> `AVAILABLE`, update UI state, and show status `Model unloaded`.
-   - `ChatScreen` top bar displays explicit `Unload` button near compute badge when model is active, showing `No model loaded` and disabling text input/send after unload.
-   - `ModelManagerScreen` displays `Unload Model` button on active model card (replacing `Load Model`).
-   - Covered by `ModelUnloadLifecycleTest` Robolectric suite (5 unit tests verifying native cleanup, state transition, disk persistence, and chat input disablement).
-   - [VERIFIED]
+10. **Model Unload Control & State Consistency**:
+    - `InferenceEngine.unloadModel()` closes native `LlmWrapper`, clears active LLM and model references, resets runtime state to READY, and preserves imported files on disk. Guarded against unload during active generation across runtime engines.
+    - Replacement model load clears persisted active model ID prior to build attempt, ensuring failed loads leave active model state cleanly reset to `null` rather than referencing stale un-loaded models.
+    - `ChatScreen` top bar displays explicit `Unload` button near compute badge when model is active, showing `No model loaded` and disabling text input/send after unload.
+    - `ModelManagerScreen` displays `Unload Model` button on active model card (replacing `Load Model`).
+    - Covered by `ModelUnloadLifecycleTest` Robolectric suite (8 unit tests verifying native cleanup, replacement state clearing, generation unload guard, YAML workflow rules, disk persistence, and chat input disablement).
+    - [VERIFIED]
 
-10. **Local Test Suite & Build Compilation**:
+11. **Local Test Suite & Build Compilation**:
     - All unit tests passing (`:app:testDebugUnitTest`), including `ModelUnloadLifecycleTest`.
     - Gradle compilation successful (`compile_applet`).
     - Lint check passed (`:app:lintDebug`).
@@ -105,21 +110,11 @@
 ## Physical S23 State
 
 - PRoot native binaries (`libproot.so`, `libtalloc.so.2`) aligned for ARM64-v8a.
+- Qwen 0.6B CPU execution VERIFIED on Samsung Galaxy S23 Ultra (SM-S918B).
 - Model Load Acceptance Progression for Snapdragon 8 Gen 2:
-  1. CPU: Must load and verify first.
-  2. GPU: Test after CPU success.
-  3. HYBRID: Test split layer acceleration.
-  4. NPU: Test Qualcomm QNN / GenieX NPU path last.
-- Status: Awaiting device physical execution run.
+  1. CPU: VERIFIED (Qwen 0.6B loaded and generated tokens).
+  2. GPU: Pending next device execution run.
+  3. HYBRID: Pending next device execution run.
+  4. NPU: Pending Qualcomm QNN / GenieX NPU execution run.
 
----
-
-## Exact Next Task
-
-Physical S23 Model Acceptance Run:
-1. Import small GGUF (e.g. Qwen 0.6B) -> verifies import to AVAILABLE on CPU without auto-load.
-2. Select CPU compute -> tap [Load Model] -> verify successful CPU load and state -> LOADED.
-3. Select GPU compute -> tap [Load Model] -> verify GPU acceleration.
-4. Select HYBRID compute -> tap [Load Model] -> verify hybrid runtime.
-5. Select NPU compute -> tap [Load Model] -> verify Qualcomm NPU execution.
 

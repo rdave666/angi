@@ -98,8 +98,10 @@ jobs:
             fi
           fi
 
-          VERSION_NAME=${VERSION_NAME:-"0.2.0"}
-          VERSION_CODE=${VERSION_CODE:-"12"}
+          if [ -z "$VERSION_NAME" ] || [ -z "$VERSION_CODE" ]; then
+            echo "::error::Failed to extract versionName or versionCode from Gradle build files."
+            exit 1
+          fi
 
           VERSIONED_APK_NAME="angi-v${VERSION_NAME}-build${VERSION_CODE}-debug.apk"
           VERSIONED_APK_DIR=$(dirname "$RAW_APK_PATH")
@@ -156,6 +158,12 @@ jobs:
           EOF
           )
 
+          # Configure git identity and force-update dev-latest tag to point to current commit SHA
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -f dev-latest "${COMMIT_SHA}"
+          git push -f origin dev-latest || true
+
           # If the rolling release tag exists, replace previous assets before uploading new APK
           if gh release view dev-latest >/dev/null 2>&1; then
             echo "dev-latest release exists. Replacing previous APK assets..."
@@ -168,6 +176,7 @@ jobs:
             gh release edit dev-latest \
               --title "ANGI Development Build" \
               --notes "$RELEASE_NOTES" \
+              --target "${COMMIT_SHA}" \
               --prerelease
 
             echo "Attaching new versioned APK asset..."
@@ -177,5 +186,6 @@ jobs:
             gh release create dev-latest "$APK_FILE" \
               --title "ANGI Development Build" \
               --notes "$RELEASE_NOTES" \
+              --target "${COMMIT_SHA}" \
               --prerelease
           fi

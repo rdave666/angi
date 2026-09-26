@@ -260,6 +260,9 @@ class GenieXInferenceEngine(
     override suspend fun unloadModel(): Result<Unit> = mutex.withLock {
         withContext(Dispatchers.IO) {
             runCatching {
+                if (runtimeState == com.example.angi.domain.inference.RuntimeState.GENERATION_ACTIVE) {
+                    throw IllegalStateException("Cannot unload model while generation is active")
+                }
                 activeLlm?.close()
                 activeLlm = null
                 activeModel = null

@@ -41,6 +41,9 @@ class FakeInferenceEngine(
     }
 
     override suspend fun unloadModel(): Result<Unit> {
+        if (state == RuntimeState.GENERATION_ACTIVE) {
+            return Result.failure(IllegalStateException("Cannot unload model while generation is active"))
+        }
         loadedModel = null
         state = RuntimeState.READY
         return Result.success(Unit)
