@@ -37,8 +37,13 @@ class FakeInferenceEngine(
     }
 
     override suspend fun unload() {
+        unloadModel()
+    }
+
+    override suspend fun unloadModel(): Result<Unit> {
         loadedModel = null
         state = RuntimeState.READY
+        return Result.success(Unit)
     }
 
     override fun runtimeInfo(): RuntimeInfo {

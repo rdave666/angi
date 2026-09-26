@@ -488,6 +488,78 @@ fun SettingsScreen(
                     }
                 }
             }
+
+            // Version & Build Information
+            item {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("settings_version_card"),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = AngiDarkSurface),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, AngiPrimary.copy(alpha = 0.3f))
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            text = "Application Information",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 15.sp,
+                            color = AngiTextPrimary
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(text = "Version", fontSize = 12.sp, color = AngiTextSecondary)
+                            Text(
+                                text = com.example.BuildConfig.VERSION_NAME,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium,
+                                fontFamily = FontFamily.Monospace,
+                                color = AngiTextPrimary
+                            )
+                        }
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(text = "Build", fontSize = 12.sp, color = AngiTextSecondary)
+                            Text(
+                                text = "${com.example.BuildConfig.VERSION_CODE}",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium,
+                                fontFamily = FontFamily.Monospace,
+                                color = AngiTextPrimary
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Subtle Footer
+            item {
+                androidx.compose.foundation.layout.Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp)
+                        .testTag("settings_version_footer"),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "ANGI v${com.example.BuildConfig.VERSION_NAME} (build ${com.example.BuildConfig.VERSION_CODE})",
+                        fontSize = 11.sp,
+                        color = AngiTextTertiary,
+                        fontFamily = FontFamily.Monospace
+                    )
+                }
+            }
         }
     }
 }

@@ -1,7 +1,7 @@
 # ANGI — Current System State
 
-**Current HEAD**: `c246750d99951b54bd49a4aa90df6dea33c63d1e`  
-**Last Updated**: 2026-09-23
+**Current App Version**: `0.2.0` (build `12`)  
+**Last Updated**: 2026-09-26
 
 ---
 
@@ -63,12 +63,26 @@
    - `LinuxInstallProgressTest` comprehensive Robolectric test suite (5 tests covering step sequence, progress event streaming, failure isolation, and ViewModel state transitions) all verified passing.
    - [VERIFIED]
 
-8. **Local Test Suite & Build Compilation**:
-   - All unit tests passing (`:app:testDebugUnitTest`), including `ModelImportAndLoadLifecycleTest`.
-   - Gradle compilation successful (`compile_applet`).
-   - Lint check passed (`:app:lintDebug`).
-   - Debug assembly succeeded (`:app:assembleDebug`).
+8. **Versioned Builds & UI Version Display**:
+   - Gradle `app/build.gradle.kts` single source of truth: `versionName = "0.2.0"`, `versionCode = 12`.
+   - Dynamic version display from `BuildConfig` in `SettingsScreen` and `DiagnosticsScreen` under App Version & Build.
+   - Subtle monospace footer (`ANGI v0.2.0 (build 12)`) rendered across Settings and Diagnostics screens.
+   - CI workflow (`.github/workflows/build-apk.yml`) extracts Gradle `versionName`/`versionCode` dynamically, creates `angi-v0.2.0-build12-debug.apk`, and uploads as artifact + rolling GitHub Release asset on `dev-latest`.
    - [VERIFIED]
+
+9. **Model Unload Control (`InferenceEngine`, `ModelViewModel`, `ChatScreen`, `ModelManagerScreen`)**:
+   - `InferenceEngine.unloadModel()` closes native `LlmWrapper`, clears active LLM and model references, resets runtime state to READY, and preserves imported files on disk.
+   - `ModelViewModel.unloadActiveModel()` and `ChatViewModel.unloadActiveModel()` clear persisted active model ID, transition model state `LOADED` -> `AVAILABLE`, update UI state, and show status `Model unloaded`.
+   - `ChatScreen` top bar displays explicit `Unload` button near compute badge when model is active, showing `No model loaded` and disabling text input/send after unload.
+   - `ModelManagerScreen` displays `Unload Model` button on active model card (replacing `Load Model`).
+   - Covered by `ModelUnloadLifecycleTest` Robolectric suite (5 unit tests verifying native cleanup, state transition, disk persistence, and chat input disablement).
+   - [VERIFIED]
+
+10. **Local Test Suite & Build Compilation**:
+    - All unit tests passing (`:app:testDebugUnitTest`), including `ModelUnloadLifecycleTest`.
+    - Gradle compilation successful (`compile_applet`).
+    - Lint check passed (`:app:lintDebug`).
+    - [VERIFIED]
 
 ---
 
@@ -80,11 +94,11 @@
 
 ## CI & Build State
 
+- **App Version**: `v0.2.0` (Build `12`)
 - **Local Build (`compile_applet`)**: VERIFIED (Clean build)
 - **Local Unit Tests (`testDebugUnitTest`)**: VERIFIED (All tests passing)
 - **Lint Check (`lintDebug`)**: VERIFIED (Passed with 0 errors)
-- **Debug Assembly (`assembleDebug`)**: VERIFIED (Passed with 0 errors)
-- **Remote CI State**: VERIFIED READY
+- **Remote CI State**: VERIFIED READY (`.github/workflows/build-apk.yml`)
 
 ---
 
@@ -108,3 +122,4 @@ Physical S23 Model Acceptance Run:
 3. Select GPU compute -> tap [Load Model] -> verify GPU acceleration.
 4. Select HYBRID compute -> tap [Load Model] -> verify hybrid runtime.
 5. Select NPU compute -> tap [Load Model] -> verify Qualcomm NPU execution.
+

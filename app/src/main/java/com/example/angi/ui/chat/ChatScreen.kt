@@ -103,6 +103,7 @@ fun ChatScreen(
                     titleContentColor = AngiTextPrimary
                 ),
                 title = {
+                    val isLoaded = uiState.runtimeInfo?.isModelLoaded == true
                     Column {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
@@ -112,7 +113,6 @@ fun ChatScreen(
                                 color = AngiPrimary
                             )
                             Spacer(modifier = Modifier.width(8.dp))
-                            val isLoaded = uiState.runtimeInfo?.isModelLoaded == true
                             val compute = uiState.runtimeInfo?.computeUnit ?: "NONE"
                             val computeLabel = when {
                                 !isLoaded -> "OFFLINE"
@@ -140,9 +140,33 @@ fun ChatScreen(
                                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                 )
                             }
+                            if (isLoaded) {
+                                Spacer(modifier = Modifier.width(8.dp))
+                                val isBusy = uiState.generationState !is GenerationState.Idle
+                                Surface(
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = if (isBusy) AngiDarkSurfaceVariant else MaterialTheme.colorScheme.error.copy(alpha = 0.15f),
+                                    border = androidx.compose.foundation.BorderStroke(
+                                        1.dp,
+                                        if (isBusy) AngiTextTertiary.copy(alpha = 0.3f) else MaterialTheme.colorScheme.error.copy(alpha = 0.6f)
+                                    ),
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .clickable(enabled = !isBusy) { viewModel.unloadActiveModel() }
+                                        .testTag("unload_model_header_button")
+                                ) {
+                                    Text(
+                                        text = "Unload",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (isBusy) AngiTextTertiary else MaterialTheme.colorScheme.error,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
                         }
                         Text(
-                            text = uiState.activeModel?.name ?: "No model loaded",
+                            text = if (isLoaded) (uiState.activeModel?.name ?: "No model loaded") else "No model loaded",
                             fontSize = 12.sp,
                             color = AngiTextSecondary,
                             maxLines = 1
@@ -272,6 +296,7 @@ fun ChatScreen(
                 }
             }
 
+            val isModelLoaded = uiState.runtimeInfo?.isModelLoaded == true
             // Composer Area
             ChatComposer(
                 text = uiState.draftInput,
@@ -279,6 +304,7 @@ fun ChatScreen(
                 onSend = viewModel::sendMessage,
                 onStop = viewModel::stopGeneration,
                 isGenerating = uiState.generationState is GenerationState.Generating,
+                isModelLoaded = isModelLoaded,
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(AngiDarkSurface)
@@ -522,8 +548,10 @@ fun ChatComposer(
     onSend: () -> Unit,
     onStop: () -> Unit,
     isGenerating: Boolean,
+    isModelLoaded: Boolean = true,
     modifier: Modifier = Modifier
 ) {
+    val canSend = isModelLoaded && !isGenerating && text.isNotBlank()
     Row(
         modifier = modifier,
         verticalAlignment = Alignment.CenterVertically
@@ -531,7 +559,14 @@ fun ChatComposer(
         OutlinedTextField(
             value = text,
             onValueChange = onTextChanged,
-            placeholder = { Text("Ask ANGI or run a tool...", fontSize = 14.sp, color = AngiTextTertiary) },
+            enabled = isModelLoaded,
+            placeholder = {
+                Text(
+                    text = if (isModelLoaded) "Ask ANGI or run a tool..." else "No model loaded. Load a model to chat.",
+                    fontSize = 14.sp,
+                    color = AngiTextTertiary
+                )
+            },
             maxLines = 4,
             modifier = Modifier
                 .weight(1f)
@@ -540,6 +575,9 @@ fun ChatComposer(
             colors = OutlinedTextFieldDefaults.colors(
                 focusedContainerColor = AngiDarkSurfaceVariant,
                 unfocusedContainerColor = AngiDarkSurfaceVariant,
+                disabledContainerColor = AngiDarkSurfaceVariant.copy(alpha = 0.5f),
+                disabledTextColor = AngiTextTertiary,
+                disabledBorderColor = Color.Transparent,
                 focusedBorderColor = AngiPrimary,
                 unfocusedBorderColor = Color.Transparent,
                 focusedTextColor = AngiTextPrimary,
@@ -567,17 +605,17 @@ fun ChatComposer(
         } else {
             IconButton(
                 onClick = onSend,
-                enabled = text.isNotBlank(),
+                enabled = canSend,
                 modifier = Modifier
                     .size(48.dp)
                     .clip(CircleShape)
-                    .background(if (text.isNotBlank()) AngiPrimary else AngiDarkSurfaceElevated)
+                    .background(if (canSend) AngiPrimary else AngiDarkSurfaceElevated)
                     .testTag("send_message_button")
             ) {
                 Icon(
                     imageVector = Icons.Default.Send,
                     contentDescription = "Send Message",
-                    tint = if (text.isNotBlank()) AngiOnPrimary else AngiTextTertiary
+                    tint = if (canSend) AngiOnPrimary else AngiTextTertiary
                 )
             }
         }

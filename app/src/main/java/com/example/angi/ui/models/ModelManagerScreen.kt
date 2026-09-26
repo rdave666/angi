@@ -24,6 +24,7 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Memory
@@ -40,6 +41,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -247,6 +249,7 @@ fun ModelManagerScreen(
                     isActive = isActive,
                     isBusy = uiState.isLoading,
                     onSelect = { viewModel.loadModel(model) },
+                    onUnload = { viewModel.unloadActiveModel() },
                     onDelete = { viewModel.deleteModel(model.id) },
                     onComputeSelected = { compute -> viewModel.updateModelCompute(model.id, compute) }
                 )
@@ -261,6 +264,7 @@ fun ModelCard(
     isActive: Boolean,
     isBusy: Boolean,
     onSelect: () -> Unit,
+    onUnload: () -> Unit,
     onDelete: () -> Unit,
     onComputeSelected: (ComputeUnit) -> Unit
 ) {
@@ -514,7 +518,33 @@ fun ModelCard(
                     color = AngiTextTertiary
                 )
 
-                if (!isActive) {
+                if (isActive) {
+                    OutlinedButton(
+                        onClick = onUnload,
+                        enabled = !isBusy && !isModelLoading,
+                        shape = RoundedCornerShape(8.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = MaterialTheme.colorScheme.error
+                        ),
+                        border = androidx.compose.foundation.BorderStroke(
+                            1.dp,
+                            MaterialTheme.colorScheme.error.copy(alpha = 0.7f)
+                        ),
+                        modifier = Modifier.testTag("unload_model_${model.id}")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Unload Model",
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "Unload Model",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                } else {
                     OutlinedButton(
                         onClick = onSelect,
                         enabled = !isBusy && !isModelLoading,

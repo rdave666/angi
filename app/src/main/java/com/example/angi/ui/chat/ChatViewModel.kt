@@ -111,4 +111,26 @@ class ChatViewModel : ViewModel() {
             )
         }
     }
+
+    fun unloadActiveModel() {
+        if (_uiState.value.generationState !is GenerationState.Idle) return
+        viewModelScope.launch {
+            val active = _uiState.value.activeModel
+            val result = inferenceEngine.unloadModel()
+            if (result.isSuccess) {
+                if (active != null) {
+                    modelRepo.updateModelLifecycleState(active.id, com.example.angi.domain.models.ModelLifecycleState.AVAILABLE)
+                }
+                modelRepo.clearActiveModel()
+                _uiState.value = _uiState.value.copy(
+                    activeModel = null,
+                    runtimeInfo = inferenceEngine.runtimeInfo()
+                )
+            } else {
+                _uiState.value = _uiState.value.copy(
+                    errorMessage = "Failed to unload model: ${result.exceptionOrNull()?.message}"
+                )
+            }
+        }
+    }
 }

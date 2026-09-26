@@ -16,6 +16,7 @@ interface InferenceEngine {
     suspend fun cancel()
 
     suspend fun unload()
+    suspend fun unloadModel(): Result<Unit> = runCatching { unload() }
 
     fun runtimeInfo(): RuntimeInfo
 

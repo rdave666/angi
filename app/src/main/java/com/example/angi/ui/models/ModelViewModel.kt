@@ -76,6 +76,37 @@ class ModelViewModel : ViewModel() {
         }
     }
 
+    fun unloadActiveModel() {
+        viewModelScope.launch {
+            val currentActive = _uiState.value.activeModel ?: modelRepo.getActiveModel()
+            _uiState.value = _uiState.value.copy(
+                isLoading = true,
+                statusMessage = "Unloading model...",
+                errorMessage = null
+            )
+            val result = inferenceEngine.unloadModel()
+            if (result.isSuccess) {
+                if (currentActive != null) {
+                    modelRepo.updateModelLifecycleState(currentActive.id, com.example.angi.domain.models.ModelLifecycleState.AVAILABLE)
+                }
+                modelRepo.clearActiveModel()
+                _uiState.value = _uiState.value.copy(
+                    isLoading = false,
+                    activeModel = null,
+                    statusMessage = "Model unloaded",
+                    errorMessage = null
+                )
+            } else {
+                val errorMsg = result.exceptionOrNull()?.message ?: "Unknown error"
+                _uiState.value = _uiState.value.copy(
+                    isLoading = false,
+                    statusMessage = null,
+                    errorMessage = "Failed to unload model: $errorMsg"
+                )
+            }
+        }
+    }
+
     fun updateModelCompute(modelId: String, computeUnit: com.example.angi.domain.models.ComputeUnit) {
         viewModelScope.launch {
             modelRepo.updateModelCompute(modelId, computeUnit)

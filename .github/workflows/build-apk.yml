@@ -17,6 +17,8 @@ jobs:
   build:
     name: Build Debug APK
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout repository
@@ -78,15 +80,47 @@ jobs:
       - name: Locate APK and Verify Native Library Packaging
         id: find_apk
         run: |
-          APK_PATH=$(find app/build/outputs/apk/debug -name "*.apk" | head -n 1)
-          if [ -z "$APK_PATH" ]; then
-            APK_PATH=$(find . -name "*.apk" | head -n 1)
+          RAW_APK_PATH=$(find app/build/outputs/apk/debug -name "*.apk" | head -n 1)
+          if [ -z "$RAW_APK_PATH" ]; then
+            RAW_APK_PATH=$(find . -name "*.apk" | head -n 1)
           fi
-          echo "Found APK: $APK_PATH"
-          echo "apk_path=$APK_PATH" >> "$GITHUB_OUTPUT"
+          echo "Found raw APK: $RAW_APK_PATH"
+
+          # Extract versionName and versionCode from Gradle
+          VERSION_NAME=$(grep 'versionName =' app/build.gradle.kts | head -n 1 | sed -E 's/.*"([^"]+)".*/\1/')
+          VERSION_CODE=$(grep 'versionCode =' app/build.gradle.kts | head -n 1 | sed -E 's/.*= *([0-9]+).*/\1/')
+
+          if [ -z "$VERSION_NAME" ] || [ -z "$VERSION_CODE" ]; then
+            METADATA_FILE=$(find app/build/outputs/apk/debug -name "output-metadata.json" | head -n 1)
+            if [ -f "$METADATA_FILE" ]; then
+              VERSION_NAME=$(jq -r '.elements[0].versionName // empty' "$METADATA_FILE")
+              VERSION_CODE=$(jq -r '.elements[0].versionCode // empty' "$METADATA_FILE")
+            fi
+          fi
+
+          VERSION_NAME=${VERSION_NAME:-"0.2.0"}
+          VERSION_CODE=${VERSION_CODE:-"12"}
+
+          VERSIONED_APK_NAME="angi-v${VERSION_NAME}-build${VERSION_CODE}-debug.apk"
+          VERSIONED_APK_DIR=$(dirname "$RAW_APK_PATH")
+          VERSIONED_APK_PATH="${VERSIONED_APK_DIR}/${VERSIONED_APK_NAME}"
+          cp "$RAW_APK_PATH" "$VERSIONED_APK_PATH"
+          BUILD_DATE=$(date -u +'%Y-%m-%d %H:%M:%S UTC')
+
+          echo "version_name=$VERSION_NAME" >> "$GITHUB_OUTPUT"
+          echo "version_code=$VERSION_CODE" >> "$GITHUB_OUTPUT"
+          echo "versioned_apk_name=$VERSIONED_APK_NAME" >> "$GITHUB_OUTPUT"
+          echo "apk_path=$VERSIONED_APK_PATH" >> "$GITHUB_OUTPUT"
+          echo "build_date=$BUILD_DATE" >> "$GITHUB_OUTPUT"
+
+          echo "=== Versioned APK details ==="
+          echo "Version: $VERSION_NAME"
+          echo "Build: $VERSION_CODE"
+          echo "APK Name: $VERSIONED_APK_NAME"
+          echo "APK Path: $VERSIONED_APK_PATH"
 
           echo "=== Inspecting APK native libraries and ABI packaging ==="
-          unzip -l "$APK_PATH" | grep -E "lib/|assets/" || true
+          unzip -l "$VERSIONED_APK_PATH" | grep -E "lib/|assets/" || true
 
           echo "=== CI Verification Note ==="
           echo "CI verified code compilation, unit/Robolectric tests, Android lint, and APK packaging."
@@ -94,7 +128,54 @@ jobs:
       - name: Upload Debug APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: angi-debug-apk
+          name: ${{ steps.find_apk.outputs.versioned_apk_name }}
           path: ${{ steps.find_apk.outputs.apk_path }}
           if-no-files-found: error
           retention-days: 14
+
+      - name: Publish to GitHub Releases
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION_NAME="${{ steps.find_apk.outputs.version_name }}"
+          VERSION_CODE="${{ steps.find_apk.outputs.version_code }}"
+          APK_FILE="${{ steps.find_apk.outputs.apk_path }}"
+          BUILD_DATE="${{ steps.find_apk.outputs.build_date }}"
+          COMMIT_SHA="${{ github.sha }}"
+
+          RELEASE_NOTES=$(cat <<EOF
+          ## ANGI Development Build
+
+          - **Version**: ${VERSION_NAME}
+          - **Build**: ${VERSION_CODE}
+          - **Commit**: ${COMMIT_SHA}
+          - **Build Date**: ${BUILD_DATE}
+
+          *Debug / development build*
+          EOF
+          )
+
+          # If the rolling release tag exists, replace previous assets before uploading new APK
+          if gh release view dev-latest >/dev/null 2>&1; then
+            echo "dev-latest release exists. Replacing previous APK assets..."
+            for asset in $(gh release view dev-latest --json assets --jq '.assets[].name'); do
+              echo "Deleting old asset: $asset"
+              gh release delete-asset dev-latest "$asset" --yes || true
+            done
+
+            echo "Updating rolling release notes..."
+            gh release edit dev-latest \
+              --title "ANGI Development Build" \
+              --notes "$RELEASE_NOTES" \
+              --prerelease
+
+            echo "Attaching new versioned APK asset..."
+            gh release upload dev-latest "$APK_FILE" --clobber
+          else
+            echo "Creating dev-latest rolling release..."
+            gh release create dev-latest "$APK_FILE" \
+              --title "ANGI Development Build" \
+              --notes "$RELEASE_NOTES" \
+              --prerelease
+          fi

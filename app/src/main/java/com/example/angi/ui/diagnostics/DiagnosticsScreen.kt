@@ -622,6 +622,57 @@ fun DiagnosticsScreen(
                     }
                 }
             }
+
+            // Version & Build Information
+            item {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("diagnostics_version_card"),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = AngiDarkSurface),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, AngiPrimary.copy(alpha = 0.3f))
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Info,
+                                contentDescription = null,
+                                tint = AngiPrimary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "App Version & Build",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 15.sp,
+                                color = AngiTextPrimary
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(10.dp))
+                        DiagRow("Version", com.example.BuildConfig.VERSION_NAME)
+                        DiagRow("Build", "${com.example.BuildConfig.VERSION_CODE}")
+                    }
+                }
+            }
+
+            // Subtle Footer
+            item {
+                androidx.compose.foundation.layout.Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp)
+                        .testTag("diagnostics_version_footer"),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "ANGI v${com.example.BuildConfig.VERSION_NAME} (build ${com.example.BuildConfig.VERSION_CODE})",
+                        fontSize = 11.sp,
+                        color = AngiTextTertiary,
+                        fontFamily = FontFamily.Monospace
+                    )
+                }
+            }
         }
     }
 }

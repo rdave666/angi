@@ -257,16 +257,20 @@ class GenieXInferenceEngine(
         }
     }
 
-    override suspend fun unload(): Unit = mutex.withLock {
+    override suspend fun unloadModel(): Result<Unit> = mutex.withLock {
         withContext(Dispatchers.IO) {
             runCatching {
                 activeLlm?.close()
                 activeLlm = null
                 activeModel = null
                 runtimeState = if (isSdkInitialized) com.example.angi.domain.inference.RuntimeState.READY else com.example.angi.domain.inference.RuntimeState.UNINITIALIZED
+                lastError = null
             }
-            Unit
         }
+    }
+
+    override suspend fun unload(): Unit {
+        unloadModel().getOrThrow()
     }
 
     override fun runtimeInfo(): RuntimeInfo {

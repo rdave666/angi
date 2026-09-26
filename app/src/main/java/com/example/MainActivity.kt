@@ -4,8 +4,11 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
@@ -28,6 +31,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -88,10 +92,25 @@ fun AngiMainApp() {
         containerColor = AngiDarkBackground,
         contentWindowInsets = WindowInsets.navigationBars,
         bottomBar = {
-            NavigationBar(
-                containerColor = AngiDarkSurface,
-                tonalElevation = 6.dp
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(AngiDarkSurface)
             ) {
+                Text(
+                    text = "ANGI v${BuildConfig.VERSION_NAME} (build ${BuildConfig.VERSION_CODE})",
+                    fontSize = 10.sp,
+                    color = AngiTextTertiary,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 4.dp, bottom = 2.dp)
+                        .testTag("app_version_footer")
+                )
+                NavigationBar(
+                    containerColor = AngiDarkSurface,
+                    tonalElevation = 6.dp
+                ) {
                 AngiNavDestination.values().forEach { destination ->
                     val isSelected = currentDestination == destination
                     NavigationBarItem(
@@ -126,6 +145,7 @@ fun AngiMainApp() {
                 }
             }
         }
+    }
     ) { innerPadding ->
         when (currentDestination) {
             AngiNavDestination.CHAT -> {

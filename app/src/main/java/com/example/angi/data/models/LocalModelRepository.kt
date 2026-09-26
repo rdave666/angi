@@ -31,6 +31,7 @@ interface ModelRepository {
     suspend fun deleteModel(id: String): Result<Unit>
     suspend fun getActiveModel(): ModelDescriptor?
     suspend fun setActiveModel(id: String)
+    suspend fun clearActiveModel()
     suspend fun initializeBundledOrPresetModels()
 }
 
@@ -214,6 +215,10 @@ class LocalModelRepository(
 
     override suspend fun setActiveModel(id: String) {
         prefs.edit().putString("active_model_id", id).apply()
+    }
+
+    override suspend fun clearActiveModel() {
+        prefs.edit().remove("active_model_id").apply()
     }
 
     override suspend fun initializeBundledOrPresetModels(): Unit = withContext(Dispatchers.IO) {
