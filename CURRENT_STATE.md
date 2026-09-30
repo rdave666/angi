@@ -83,8 +83,28 @@
     - Covered by `ModelUnloadLifecycleTest` Robolectric suite (8 unit tests verifying native cleanup, replacement state clearing, generation unload guard, YAML workflow rules, disk persistence, and chat input disablement).
     - [VERIFIED]
 
-11. **Local Test Suite & Build Compilation**:
-    - All unit tests passing (`:app:testDebugUnitTest`), including `ModelUnloadLifecycleTest`.
+11. **OpenAI-Compatible Local HTTP API (`OpenAiApiService` & `OpenAiHttpServer`)**:
+    - Embedded Android foreground service (`OpenAiApiService`) running `OpenAiHttpServer`.
+    - Routes all requests directly through existing `InferenceEngine` (no separate model loading or second runtime).
+    - Default bind: `127.0.0.1:8080`. Optional LAN mode (`0.0.0.0`) requiring Bearer token authentication.
+    - Endpoints:
+      - `GET /health` (returns status 200 with model loaded state and compute unit)
+      - `GET /v1/models` (returns active loaded model ID, name, backend, compute unit)
+      - `POST /v1/chat/completions` (JSON `stream=false` and SSE `stream=true` with `data: [DONE]`)
+      - `POST /v1/completions` (Legacy prompt completions JSON and SSE)
+    - Runtime rules:
+      - No model loaded -> HTTP 503
+      - Generation active / busy -> HTTP 429
+      - Client disconnect -> immediate cancellation of active inference via `inferenceEngine.cancel()`
+      - Unloading / loading a new model updates API dynamically with no server restart required.
+    - UI Settings section:
+      - Controls for Enable Server, Mode (Device Only / Local Network), Port, Endpoint, API Key, Copy Endpoint, Copy API Key, Server status, Loaded model, Compute unit.
+    - Test Suite (`OpenAiApiServerTest`):
+      - 10 unit tests covering `/health`, `/v1/models` (loaded & empty), dynamic model change without restart, non-streaming chat, SSE streaming, Bearer token auth, 503 no-model, 429 busy rate limit, disconnect cancellation.
+    - [VERIFIED IN UNIT TESTS]
+
+12. **Local Test Suite & Build Compilation**:
+    - All unit tests passing (`:app:testDebugUnitTest`), including `OpenAiApiServerTest` and `ModelUnloadLifecycleTest`.
     - Gradle compilation successful (`compile_applet`).
     - Lint check passed (`:app:lintDebug`).
     - [VERIFIED]
@@ -107,7 +127,7 @@
 
 ---
 
-## Physical S23 State
+## Physical S23 Acceptance State
 
 - PRoot native binaries (`libproot.so`, `libtalloc.so.2`) aligned for ARM64-v8a.
 - Qwen 0.6B CPU execution VERIFIED on Samsung Galaxy S23 Ultra (SM-S918B).
@@ -116,5 +136,12 @@
   2. GPU: Pending next device execution run.
   3. HYBRID: Pending next device execution run.
   4. NPU: Pending Qualcomm QNN / GenieX NPU execution run.
+- OpenAI-Compatible API Physical S23 Acceptance (Marked NOT VERIFIED until manual S23 test):
+  1. Real loaded GenieX model exposed through `/v1/models`: NOT VERIFIED
+  2. Real `/v1/chat/completions`: NOT VERIFIED
+  3. Real SSE token streaming: NOT VERIFIED
+  4. Connection from another Android app using OpenAI `base_url`: NOT VERIFIED
+  5. LAN connection from another device: NOT VERIFIED
+  6. Cancellation of real GenieX generation on disconnect: NOT VERIFIED
 
 

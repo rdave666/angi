@@ -30,7 +30,12 @@ data class AngiSettings(
     val isLinuxProcessToolsEnabled: Boolean = true,
     val isAndroidReadFileEnabled: Boolean = true,
     val isAndroidWriteFileEnabled: Boolean = true,
-    val allowUnconfirmedAndroidWrite: Boolean = false
+    val allowUnconfirmedAndroidWrite: Boolean = false,
+    // OpenAI-Compatible Local HTTP API Settings
+    val isApiServerEnabled: Boolean = false,
+    val apiServerPort: Int = 8080,
+    val apiServerBindLan: Boolean = false,
+    val apiServerApiKey: String = ""
 )
 
 class SettingsRepository(
@@ -67,7 +72,15 @@ class SettingsRepository(
             isLinuxProcessToolsEnabled = prefs.getBoolean("tool_linux_process", true),
             isAndroidReadFileEnabled = prefs.getBoolean("tool_android_read", true),
             isAndroidWriteFileEnabled = prefs.getBoolean("tool_android_write", true),
-            allowUnconfirmedAndroidWrite = prefs.getBoolean("tool_auto_android_write", false)
+            allowUnconfirmedAndroidWrite = prefs.getBoolean("tool_auto_android_write", false),
+            isApiServerEnabled = prefs.getBoolean("api_server_enabled", false),
+            apiServerPort = prefs.getInt("api_server_port", 8080),
+            apiServerBindLan = prefs.getBoolean("api_server_bind_lan", false),
+            apiServerApiKey = prefs.getString("api_server_key", null) ?: run {
+                val generated = "sk-angi-" + java.util.UUID.randomUUID().toString().replace("-", "").take(16)
+                prefs.edit().putString("api_server_key", generated).apply()
+                generated
+            }
         )
     }
 
@@ -93,6 +106,10 @@ class SettingsRepository(
             .putBoolean("tool_android_read", newSettings.isAndroidReadFileEnabled)
             .putBoolean("tool_android_write", newSettings.isAndroidWriteFileEnabled)
             .putBoolean("tool_auto_android_write", newSettings.allowUnconfirmedAndroidWrite)
+            .putBoolean("api_server_enabled", newSettings.isApiServerEnabled)
+            .putInt("api_server_port", newSettings.apiServerPort)
+            .putBoolean("api_server_bind_lan", newSettings.apiServerBindLan)
+            .putString("api_server_key", newSettings.apiServerApiKey)
             .apply()
         _settings.value = newSettings
     }
