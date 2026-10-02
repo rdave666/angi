@@ -2,7 +2,7 @@
 
 **Current App Version**: `0.2.0` (build `12`)  
 **Current HEAD**: `main`  
-**Last Updated**: 2026-09-26
+**Last Updated**: 2026-10-02
 
 ---
 
@@ -86,21 +86,28 @@
 11. **OpenAI-Compatible Local HTTP API (`OpenAiApiService` & `OpenAiHttpServer`)**:
     - Embedded Android foreground service (`OpenAiApiService`) running `OpenAiHttpServer`.
     - Routes all requests directly through existing `InferenceEngine` (no separate model loading or second runtime).
-    - Default bind: `127.0.0.1:8080`. Optional LAN mode (`0.0.0.0`) requiring Bearer token authentication.
-    - Endpoints:
-      - `GET /health` (returns status 200 with model loaded state and compute unit)
-      - `GET /v1/models` (returns active loaded model ID, name, backend, compute unit)
-      - `POST /v1/chat/completions` (JSON `stream=false` and SSE `stream=true` with `data: [DONE]`)
-      - `POST /v1/completions` (Legacy prompt completions JSON and SSE)
-    - Runtime rules:
-      - No model loaded -> HTTP 503
-      - Generation active / busy -> HTTP 429
-      - Client disconnect -> immediate cancellation of active inference via `inferenceEngine.cancel()`
-      - Unloading / loading a new model updates API dynamically with no server restart required.
-    - UI Settings section:
-      - Controls for Enable Server, Mode (Device Only / Local Network), Port, Endpoint, API Key, Copy Endpoint, Copy API Key, Server status, Loaded model, Compute unit.
-    - Test Suite (`OpenAiApiServerTest`):
-      - 10 unit tests covering `/health`, `/v1/models` (loaded & empty), dynamic model change without restart, non-streaming chat, SSE streaming, Bearer token auth, 503 no-model, 429 busy rate limit, disconnect cancellation.
+    - Default bind: `127.0.0.1:8080`. Optional LAN mode binds `0.0.0.0` internally and requires Bearer token authentication.
+    - **LAN Endpoint Display Fixes**:
+      - Client endpoint never shows or copies `0.0.0.0`.
+      - Detects local Wi-Fi/LAN IPv4 via `NetworkUtils.getLocalIpv4Address()` and renders `http://<PHONE_LAN_IP>:<PORT>/v1`.
+      - If no LAN address is available, displays `"LAN address unavailable"` and disables copy.
+      - Device-only mode displays `http://127.0.0.1:<PORT>/v1`.
+    - **State Reconciliation Fixes**:
+      - Persisted `isApiServerEnabled` starts service on app/process initialization (`AngiApp.onCreate()`).
+      - Start failures truthfully update runtime state to stopped and reconcile persisted setting to `false`.
+      - Switch in `SettingsScreen` represents actual running state.
+    - **Disconnect Cancellation & Concurrency**:
+      - Full disconnect cancellation implemented for both streaming (SSE) and non-streaming requests.
+      - Parallel socket disconnect watcher detects TCP FIN/RST or connection close, cancels request job, invokes `inferenceEngine.cancel()`, and releases `inferenceLock`.
+      - Inference lock reliably released; subsequent requests are never blocked with 429 after client disconnect.
+    - **Exact Byte Content-Length Body Parsing**:
+      - Reads exact `Content-Length` byte count from stream before UTF-8 decoding, cleanly supporting non-ASCII / multi-byte characters.
+    - **Model Field Behavior**:
+      - Accepts active model ID and stable alias `angi-loaded-model`.
+      - Rejects invalid/unloaded model IDs with HTTP 400 (`invalid_request_error`).
+      - `/v1/models` exposes the active model ID and `angi-loaded-model` alias (or empty array if no model is loaded).
+    - **Automated Test Suite (`OpenAiApiServerTest`)**:
+      - 14 tests covering `/health`, `/v1/models`, dynamic model change without restart, LAN 0.0.0.0 internal bind, client endpoint never exposing 0.0.0.0, LAN detected IP vs unavailable, non-streaming & streaming chat, Bearer auth, 503 no-model, 429 busy rate limit, streaming disconnect cancel, non-streaming disconnect cancel, inference lock release, UTF-8 byte Content-Length parsing, active model ID & alias acceptance, wrong model 400 rejection, and service restart reconciliation.
     - [VERIFIED IN UNIT TESTS]
 
 12. **Local Test Suite & Build Compilation**:

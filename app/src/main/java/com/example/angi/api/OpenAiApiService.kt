@@ -22,11 +22,13 @@ import kotlinx.coroutines.flow.asStateFlow
 
 data class ApiServerState(
     val isRunning: Boolean = false,
-    val host: String = "127.0.0.1",
+    val bindHost: String = "127.0.0.1",
     val port: Int = 8080,
     val isLanMode: Boolean = false,
     val apiKey: String = "",
-    val endpointUrl: String = "http://127.0.0.1:8080",
+    val lanIp: String? = null,
+    val endpointUrl: String = "http://127.0.0.1:8080/v1",
+    val isEndpointAvailable: Boolean = true,
     val errorMessage: String? = null
 )
 
@@ -67,8 +69,13 @@ class OpenAiApiService : Service() {
         val apiKey = settings.apiServerApiKey
         val requireAuth = settings.apiServerBindLan
 
-        val endpoint = "http://$host:$port"
-        val notification = buildNotification("Listening on $endpoint")
+        val lanIp = if (settings.apiServerBindLan) NetworkUtils.getLocalIpv4Address() else null
+        val notifText = when {
+            !settings.apiServerBindLan -> "Listening on http://127.0.0.1:$port/v1"
+            lanIp != null -> "Listening on http://$lanIp:$port/v1"
+            else -> "Listening on port $port (LAN address unavailable)"
+        }
+        val notification = buildNotification(notifText)
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             ServiceCompat.startForeground(
@@ -94,27 +101,42 @@ class OpenAiApiService : Service() {
             val actualPort = newServer.start()
             server = newServer
 
+            val clientEndpoint = when {
+                !settings.apiServerBindLan -> "http://127.0.0.1:$actualPort/v1"
+                lanIp != null -> "http://$lanIp:$actualPort/v1"
+                else -> "LAN address unavailable"
+            }
+
             _serverState.value = ApiServerState(
                 isRunning = true,
-                host = host,
+                bindHost = host,
                 port = actualPort,
                 isLanMode = settings.apiServerBindLan,
                 apiKey = apiKey,
-                endpointUrl = "http://$host:$actualPort",
+                lanIp = lanIp,
+                endpointUrl = clientEndpoint,
+                isEndpointAvailable = (!settings.apiServerBindLan || lanIp != null),
                 errorMessage = null
             )
-            Log.i("OpenAiApiService", "OpenAiApiService started successfully on $endpoint")
+            settingsRepo.updateSettings(settings.copy(isApiServerEnabled = true))
+            Log.i("OpenAiApiService", "OpenAiApiService started successfully on $clientEndpoint")
         } catch (e: Exception) {
             Log.e("OpenAiApiService", "Failed to start OpenAiHttpServer: ${e.message}", e)
             _serverState.value = ApiServerState(
                 isRunning = false,
-                host = host,
+                bindHost = host,
                 port = port,
                 isLanMode = settings.apiServerBindLan,
                 apiKey = apiKey,
-                endpointUrl = endpoint,
+                lanIp = lanIp,
+                endpointUrl = if (!settings.apiServerBindLan) "http://127.0.0.1:$port/v1" else (lanIp?.let { "http://$it:$port/v1" } ?: "LAN address unavailable"),
+                isEndpointAvailable = false,
                 errorMessage = e.message ?: "Failed to start server"
             )
+            // Reconcile persisted state truthfully
+            settingsRepo.updateSettings(settings.copy(isApiServerEnabled = false))
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
         }
     }
 
@@ -123,6 +145,13 @@ class OpenAiApiService : Service() {
         server = null
         val current = _serverState.value
         _serverState.value = current.copy(isRunning = false, errorMessage = null)
+        try {
+            val settingsRepo = AngiApp.instance.settingsRepository
+            val currentSettings = settingsRepo.settings.value
+            if (currentSettings.isApiServerEnabled) {
+                settingsRepo.updateSettings(currentSettings.copy(isApiServerEnabled = false))
+            }
+        } catch (_: Throwable) {}
         Log.i("OpenAiApiService", "OpenAiApiService stopped.")
     }
 

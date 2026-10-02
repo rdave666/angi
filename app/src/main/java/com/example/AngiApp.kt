@@ -136,6 +136,10 @@ class AngiApp : Application() {
                 inferenceEngine.loadModel(active)
             }
         }
+
+        if (settingsRepository.settings.value.isApiServerEnabled) {
+            com.example.angi.api.OpenAiApiService.start(this)
+        }
     }
 
     private fun startNativeLogForwarder() {

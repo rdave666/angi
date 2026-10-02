@@ -1,29 +1,27 @@
 package com.example.angi.api
 
 import android.util.Log
+import com.example.angi.data.models.ModelRepository
 import com.example.angi.domain.conversation.Message
 import com.example.angi.domain.inference.GenerationEvent
 import com.example.angi.domain.inference.GenerationRequest
 import com.example.angi.domain.inference.InferenceEngine
 import com.example.angi.domain.inference.RuntimeState
-import com.example.angi.data.models.ModelRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
-import java.io.BufferedReader
 import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.io.InputStream
-import java.io.InputStreamReader
 import java.io.OutputStream
 import java.net.InetAddress
 import java.net.InetSocketAddress
@@ -34,7 +32,7 @@ import java.util.UUID
 
 /**
  * Embedded HTTP server exposing OpenAI-compatible REST and SSE endpoints.
- * All inference is routed strictly through the provided [InferenceEngine].
+ * All inference is routed strictly through the single active [InferenceEngine].
  */
 class OpenAiHttpServer(
     val host: String = "127.0.0.1",
@@ -50,22 +48,6 @@ class OpenAiHttpServer(
     private val serverScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val inferenceLock = Mutex()
 
-    private fun logI(tag: String, msg: String) {
-        try {
-            Log.i(tag, msg)
-        } catch (_: Throwable) {
-            println("[$tag] $msg")
-        }
-    }
-
-    private fun logW(tag: String, msg: String) {
-        try {
-            Log.w(tag, msg)
-        } catch (_: Throwable) {
-            println("[$tag] $msg")
-        }
-    }
-
     @Volatile
     var isRunning: Boolean = false
         private set
@@ -80,7 +62,6 @@ class OpenAiHttpServer(
 
         val bindAddr = InetAddress.getByName(host)
         val socket = ServerSocket().apply {
-            reuseAddress = true
             bind(InetSocketAddress(bindAddr, port))
         }
         serverSocket = socket
@@ -88,7 +69,7 @@ class OpenAiHttpServer(
         isRunning = true
 
         serverJob = serverScope.launch {
-            logI(tag, "OpenAI API server started on http://$host:$boundPort (requireAuth=$requireAuth)")
+            Log.i(tag, "OpenAI API server started on http://$host:$boundPort (requireAuth=$requireAuth)")
             while (isActive && !socket.isClosed) {
                 try {
                     val clientSocket = socket.accept()
@@ -97,7 +78,7 @@ class OpenAiHttpServer(
                     }
                 } catch (e: Exception) {
                     if (socket.isClosed || !isActive) break
-                    logW(tag, "Socket accept error: ${e.message}")
+                    Log.w(tag, "Socket accept error: ${e.message}")
                 }
             }
         }
@@ -114,11 +95,10 @@ class OpenAiHttpServer(
         serverSocket = null
         serverJob?.cancel()
         serverJob = null
-        logI(tag, "OpenAI API server stopped.")
+        Log.i(tag, "OpenAI API server stopped.")
     }
 
     private suspend fun handleClient(socket: Socket) = withContext(Dispatchers.IO) {
-        var currentInferenceJob: Job? = null
         try {
             socket.soTimeout = 60000 // 60s read timeout
             val inputStream = socket.getInputStream()
@@ -156,14 +136,10 @@ class OpenAiHttpServer(
                     handleModels(outputStream)
                 }
                 request.method == "POST" && (path == "/v1/chat/completions" || path == "/chat/completions") -> {
-                    handleChatCompletions(request, socket, outputStream) { job ->
-                        currentInferenceJob = job
-                    }
+                    handleChatCompletions(request, socket, outputStream)
                 }
                 request.method == "POST" && (path == "/v1/completions" || path == "/completions") -> {
-                    handleCompletions(request, socket, outputStream) { job ->
-                        currentInferenceJob = job
-                    }
+                    handleCompletions(request, socket, outputStream)
                 }
                 else -> {
                     sendError(outputStream, 404, "Not Found", "not_found", "The requested endpoint does not exist: $path")
@@ -171,7 +147,7 @@ class OpenAiHttpServer(
             }
         } catch (e: Exception) {
             if (e !is SocketException) {
-                logW(tag, "Client connection error: ${e.message}")
+                Log.w(tag, "Client connection error: ${e.message}")
             }
         } finally {
             try {
@@ -202,12 +178,24 @@ class OpenAiHttpServer(
                 modelRepository?.getModelById(modelId)?.name
             }.getOrNull() ?: modelId
 
+            // Primary active model entry
             modelsArray.put(JSONObject().apply {
                 put("id", modelId)
                 put("object", "model")
                 put("created", 1700000000L)
                 put("owned_by", "angi")
                 put("name", modelName)
+                put("backend", info.backend)
+                put("compute_unit", info.computeUnit)
+            })
+
+            // Stable alias entry
+            modelsArray.put(JSONObject().apply {
+                put("id", "angi-loaded-model")
+                put("object", "model")
+                put("created", 1700000000L)
+                put("owned_by", "angi")
+                put("name", "$modelName (Current Active Alias)")
                 put("backend", info.backend)
                 put("compute_unit", info.computeUnit)
             })
@@ -223,14 +211,38 @@ class OpenAiHttpServer(
     private suspend fun handleChatCompletions(
         request: HttpRequest,
         socket: Socket,
-        out: OutputStream,
-        onJobStarted: (Job) -> Unit
+        out: OutputStream
     ) {
         // Runtime rule 1: No loaded model -> 503
         val info = inferenceEngine.runtimeInfo()
         if (!info.isModelLoaded || info.loadedModelId == null) {
             sendError(out, 503, "No model loaded", "no_model_loaded", "No model is currently loaded in ANGI. Load a model first.")
             return
+        }
+
+        val bodyJson = runCatching { JSONObject(request.body) }.getOrNull()
+        if (bodyJson == null) {
+            sendError(out, 400, "Invalid JSON", "invalid_request_error", "Request body must be valid JSON.")
+            return
+        }
+
+        // Model field validation:
+        // Accept active model ID or stable alias "angi-loaded-model", reject other IDs with 400
+        val requestedModel = bodyJson.optString("model", "").trim()
+        val activeModelId = info.loadedModelId!!
+        if (requestedModel.isNotEmpty()) {
+            val matchesActive = requestedModel.equals(activeModelId, ignoreCase = true)
+            val matchesAlias = requestedModel.equals("angi-loaded-model", ignoreCase = true)
+            if (!matchesActive && !matchesAlias) {
+                sendError(
+                    out,
+                    400,
+                    "Invalid model",
+                    "invalid_request_error",
+                    "The model '$requestedModel' does not exist or is not loaded. Currently loaded model is '$activeModelId' (or alias 'angi-loaded-model')."
+                )
+                return
+            }
         }
 
         // Runtime rule 2: Generation already active / busy -> 429
@@ -240,12 +252,6 @@ class OpenAiHttpServer(
         }
 
         try {
-            val bodyJson = runCatching { JSONObject(request.body) }.getOrNull()
-            if (bodyJson == null) {
-                sendError(out, 400, "Invalid JSON", "invalid_request_error", "Request body must be valid JSON.")
-                return
-            }
-
             val isStream = bodyJson.optBoolean("stream", false)
             val maxTokens = bodyJson.optInt("max_tokens", 1024)
             val temperature = bodyJson.optDouble("temperature", 0.7).toFloat()
@@ -292,12 +298,13 @@ class OpenAiHttpServer(
 
             val reqId = "chatcmpl-" + UUID.randomUUID().toString().replace("-", "").take(16)
             val created = System.currentTimeMillis() / 1000
-            val loadedModelId = info.loadedModelId
 
-            if (isStream) {
-                handleStreamingChat(reqId, created, loadedModelId, genRequest, socket, out, onJobStarted)
-            } else {
-                handleNonStreamingChat(reqId, created, loadedModelId, genRequest, out)
+            runInferenceWithDisconnectWatcher(socket) {
+                if (isStream) {
+                    executeStreamingChat(reqId, created, activeModelId, genRequest, out)
+                } else {
+                    executeNonStreamingChat(reqId, created, activeModelId, genRequest, out)
+                }
             }
         } finally {
             inferenceLock.unlock()
@@ -307,13 +314,35 @@ class OpenAiHttpServer(
     private suspend fun handleCompletions(
         request: HttpRequest,
         socket: Socket,
-        out: OutputStream,
-        onJobStarted: (Job) -> Unit
+        out: OutputStream
     ) {
         val info = inferenceEngine.runtimeInfo()
         if (!info.isModelLoaded || info.loadedModelId == null) {
             sendError(out, 503, "No model loaded", "no_model_loaded", "No model is currently loaded in ANGI.")
             return
+        }
+
+        val bodyJson = runCatching { JSONObject(request.body) }.getOrNull()
+        if (bodyJson == null) {
+            sendError(out, 400, "Invalid JSON", "invalid_request_error", "Request body must be valid JSON.")
+            return
+        }
+
+        val requestedModel = bodyJson.optString("model", "").trim()
+        val activeModelId = info.loadedModelId!!
+        if (requestedModel.isNotEmpty()) {
+            val matchesActive = requestedModel.equals(activeModelId, ignoreCase = true)
+            val matchesAlias = requestedModel.equals("angi-loaded-model", ignoreCase = true)
+            if (!matchesActive && !matchesAlias) {
+                sendError(
+                    out,
+                    400,
+                    "Invalid model",
+                    "invalid_request_error",
+                    "The model '$requestedModel' does not exist or is not loaded. Currently loaded model is '$activeModelId' (or alias 'angi-loaded-model')."
+                )
+                return
+            }
         }
 
         if (info.runtimeState == RuntimeState.GENERATION_ACTIVE || !inferenceLock.tryLock()) {
@@ -322,12 +351,6 @@ class OpenAiHttpServer(
         }
 
         try {
-            val bodyJson = runCatching { JSONObject(request.body) }.getOrNull()
-            if (bodyJson == null) {
-                sendError(out, 400, "Invalid JSON", "invalid_request_error", "Request body must be valid JSON.")
-                return
-            }
-
             val prompt = bodyJson.optString("prompt", "")
             val isStream = bodyJson.optBoolean("stream", false)
             val maxTokens = bodyJson.optInt("max_tokens", 1024)
@@ -345,15 +368,63 @@ class OpenAiHttpServer(
 
             val reqId = "cmpl-" + UUID.randomUUID().toString().replace("-", "").take(16)
             val created = System.currentTimeMillis() / 1000
-            val loadedModelId = info.loadedModelId
 
-            if (isStream) {
-                handleStreamingCompletions(reqId, created, loadedModelId, genRequest, socket, out, onJobStarted)
-            } else {
-                handleNonStreamingCompletions(reqId, created, loadedModelId, genRequest, out)
+            runInferenceWithDisconnectWatcher(socket) {
+                if (isStream) {
+                    executeStreamingCompletions(reqId, created, activeModelId, genRequest, out)
+                } else {
+                    executeNonStreamingCompletions(reqId, created, activeModelId, genRequest, out)
+                }
             }
         } finally {
             inferenceLock.unlock()
+        }
+    }
+
+    /**
+     * Executes the given inference block while actively monitoring the client socket for disconnects.
+     * If the client closes the connection during streaming or non-streaming execution,
+     * the inference block is cancelled immediately and [InferenceEngine.cancel] is invoked.
+     */
+    private suspend fun runInferenceWithDisconnectWatcher(
+        socket: Socket,
+        block: suspend () -> Unit
+    ) {
+        var completedNormally = false
+        val currentJob = kotlinx.coroutines.currentCoroutineContext()[Job]
+
+        // Parallel watcher that detects TCP FIN/RST or socket close from the client
+        val watcherJob = serverScope.launch(Dispatchers.IO) {
+            try {
+                val buf = ByteArray(1)
+                val read = socket.getInputStream().read(buf)
+                if (read == -1) {
+                    Log.i(tag, "Client socket EOF detected during active inference, cancelling...")
+                    currentJob?.cancel(CancellationException("Client disconnected (EOF)"))
+                }
+            } catch (_: SocketException) {
+                Log.i(tag, "Client socket reset detected during active inference, cancelling...")
+                currentJob?.cancel(CancellationException("Client socket closed"))
+            } catch (_: IOException) {
+                currentJob?.cancel(CancellationException("Client socket I/O error"))
+            }
+        }
+
+        try {
+            block()
+            completedNormally = true
+        } finally {
+            watcherJob.cancel()
+            try {
+                socket.shutdownInput()
+            } catch (_: Throwable) {}
+            if (!completedNormally) {
+                try {
+                    inferenceEngine.cancel()
+                } catch (t: Throwable) {
+                    Log.w(tag, "Error cancelling inference engine: ${t.message}")
+                }
+            }
         }
     }
 
@@ -363,7 +434,7 @@ class OpenAiHttpServer(
             return templateResult.getOrThrow()
         }
 
-        // Universal ChatML fallback for models running locally
+        // Universal ChatML fallback
         return buildString {
             if (!systemPrompt.isNullOrBlank()) {
                 append("<|im_start|>system\n").append(systemPrompt.trim()).append("<|im_end|>\n")
@@ -379,7 +450,7 @@ class OpenAiHttpServer(
         }
     }
 
-    private suspend fun handleNonStreamingChat(
+    private suspend fun executeNonStreamingChat(
         id: String,
         created: Long,
         modelId: String,
@@ -435,14 +506,12 @@ class OpenAiHttpServer(
         sendJsonResponse(out, 200, resp.toString())
     }
 
-    private suspend fun handleStreamingChat(
+    private suspend fun executeStreamingChat(
         id: String,
         created: Long,
         modelId: String,
         request: GenerationRequest,
-        socket: Socket,
-        out: OutputStream,
-        onJobStarted: (Job) -> Unit
+        out: OutputStream
     ) {
         val sseHeaders = "HTTP/1.1 200 OK\r\n" +
                 "Content-Type: text/event-stream; charset=utf-8\r\n" +
@@ -450,13 +519,8 @@ class OpenAiHttpServer(
                 "Connection: keep-alive\r\n" +
                 "Access-Control-Allow-Origin: *\r\n\r\n"
 
-        try {
-            out.write(sseHeaders.toByteArray(Charsets.UTF_8))
-            out.flush()
-        } catch (e: Exception) {
-            inferenceEngine.cancel()
-            return
-        }
+        out.write(sseHeaders.toByteArray(Charsets.UTF_8))
+        out.flush()
 
         // Initial role chunk
         val initialChunk = JSONObject().apply {
@@ -474,70 +538,56 @@ class OpenAiHttpServer(
                 })
             })
         }
-        if (!sendSseChunk(out, initialChunk.toString())) {
-            inferenceEngine.cancel()
-            return
-        }
+        sendSseChunk(out, initialChunk.toString())
 
-        val currentJob = CoroutineScope(Dispatchers.IO).launch {
-            try {
-                val flow = inferenceEngine.generate(request)
-                flow.collect { event ->
-                    when (event) {
-                        is GenerationEvent.Token -> {
-                            val chunk = JSONObject().apply {
-                                put("id", id)
-                                put("object", "chat.completion.chunk")
-                                put("created", created)
-                                put("model", modelId)
-                                put("choices", JSONArray().apply {
-                                    put(JSONObject().apply {
-                                        put("index", 0)
-                                        put("delta", JSONObject().apply {
-                                            put("content", event.text)
-                                        })
-                                        put("finish_reason", JSONObject.NULL)
-                                    })
+        val flow = inferenceEngine.generate(request)
+        flow.collect { event ->
+            when (event) {
+                is GenerationEvent.Token -> {
+                    val chunk = JSONObject().apply {
+                        put("id", id)
+                        put("object", "chat.completion.chunk")
+                        put("created", created)
+                        put("model", modelId)
+                        put("choices", JSONArray().apply {
+                            put(JSONObject().apply {
+                                put("index", 0)
+                                put("delta", JSONObject().apply {
+                                    put("content", event.text)
                                 })
-                            }
-                            if (!sendSseChunk(out, chunk.toString())) {
-                                inferenceEngine.cancel()
-                                throw CancellationException("Client disconnected")
-                            }
-                        }
-                        is GenerationEvent.Completed -> {
-                            val finalChunk = JSONObject().apply {
-                                put("id", id)
-                                put("object", "chat.completion.chunk")
-                                put("created", created)
-                                put("model", modelId)
-                                put("choices", JSONArray().apply {
-                                    put(JSONObject().apply {
-                                        put("index", 0)
-                                        put("delta", JSONObject())
-                                        put("finish_reason", "stop")
-                                    })
-                                })
-                            }
-                            sendSseChunk(out, finalChunk.toString())
-                            sendSseRaw(out, "data: [DONE]\n\n")
-                        }
-                        is GenerationEvent.Error -> {
-                            sendSseRaw(out, "data: [DONE]\n\n")
-                        }
-                        else -> {}
+                                put("finish_reason", JSONObject.NULL)
+                            })
+                        })
                     }
+                    sendSseChunk(out, chunk.toString())
                 }
-            } catch (t: Throwable) {
-                // Disconnect or cancellation
-                inferenceEngine.cancel()
+                is GenerationEvent.Completed -> {
+                    val finalChunk = JSONObject().apply {
+                        put("id", id)
+                        put("object", "chat.completion.chunk")
+                        put("created", created)
+                        put("model", modelId)
+                        put("choices", JSONArray().apply {
+                            put(JSONObject().apply {
+                                put("index", 0)
+                                put("delta", JSONObject())
+                                put("finish_reason", "stop")
+                            })
+                        })
+                    }
+                    sendSseChunk(out, finalChunk.toString())
+                    sendSseRaw(out, "data: [DONE]\n\n")
+                }
+                is GenerationEvent.Error -> {
+                    sendSseRaw(out, "data: [DONE]\n\n")
+                    throw event.throwable
+                }
+                else -> {}
             }
         }
-        onJobStarted(currentJob)
-        currentJob.join()
     }
 
-    private suspend fun handleNonStreamingCompletions(
+    private suspend fun executeNonStreamingCompletions(
         id: String,
         created: Long,
         modelId: String,
@@ -590,14 +640,12 @@ class OpenAiHttpServer(
         sendJsonResponse(out, 200, resp.toString())
     }
 
-    private suspend fun handleStreamingCompletions(
+    private suspend fun executeStreamingCompletions(
         id: String,
         created: Long,
         modelId: String,
         request: GenerationRequest,
-        socket: Socket,
-        out: OutputStream,
-        onJobStarted: (Job) -> Unit
+        out: OutputStream
     ) {
         val sseHeaders = "HTTP/1.1 200 OK\r\n" +
                 "Content-Type: text/event-stream; charset=utf-8\r\n" +
@@ -605,81 +653,61 @@ class OpenAiHttpServer(
                 "Connection: keep-alive\r\n" +
                 "Access-Control-Allow-Origin: *\r\n\r\n"
 
-        try {
-            out.write(sseHeaders.toByteArray(Charsets.UTF_8))
-            out.flush()
-        } catch (e: Exception) {
-            inferenceEngine.cancel()
-            return
-        }
+        out.write(sseHeaders.toByteArray(Charsets.UTF_8))
+        out.flush()
 
-        val currentJob = CoroutineScope(Dispatchers.IO).launch {
-            try {
-                val flow = inferenceEngine.generate(request)
-                flow.collect { event ->
-                    when (event) {
-                        is GenerationEvent.Token -> {
-                            val chunk = JSONObject().apply {
-                                put("id", id)
-                                put("object", "text_completion")
-                                put("created", created)
-                                put("model", modelId)
-                                put("choices", JSONArray().apply {
-                                    put(JSONObject().apply {
-                                        put("index", 0)
-                                        put("text", event.text)
-                                        put("finish_reason", JSONObject.NULL)
-                                    })
-                                })
-                            }
-                            if (!sendSseChunk(out, chunk.toString())) {
-                                inferenceEngine.cancel()
-                                throw CancellationException("Client disconnected")
-                            }
-                        }
-                        is GenerationEvent.Completed -> {
-                            val finalChunk = JSONObject().apply {
-                                put("id", id)
-                                put("object", "text_completion")
-                                put("created", created)
-                                put("model", modelId)
-                                put("choices", JSONArray().apply {
-                                    put(JSONObject().apply {
-                                        put("index", 0)
-                                        put("text", "")
-                                        put("finish_reason", "stop")
-                                    })
-                                })
-                            }
-                            sendSseChunk(out, finalChunk.toString())
-                            sendSseRaw(out, "data: [DONE]\n\n")
-                        }
-                        is GenerationEvent.Error -> {
-                            sendSseRaw(out, "data: [DONE]\n\n")
-                        }
-                        else -> {}
+        val flow = inferenceEngine.generate(request)
+        flow.collect { event ->
+            when (event) {
+                is GenerationEvent.Token -> {
+                    val chunk = JSONObject().apply {
+                        put("id", id)
+                        put("object", "text_completion")
+                        put("created", created)
+                        put("model", modelId)
+                        put("choices", JSONArray().apply {
+                            put(JSONObject().apply {
+                                put("index", 0)
+                                put("text", event.text)
+                                put("finish_reason", JSONObject.NULL)
+                            })
+                        })
                     }
+                    sendSseChunk(out, chunk.toString())
                 }
-            } catch (t: Throwable) {
-                inferenceEngine.cancel()
+                is GenerationEvent.Completed -> {
+                    val finalChunk = JSONObject().apply {
+                        put("id", id)
+                        put("object", "text_completion")
+                        put("created", created)
+                        put("model", modelId)
+                        put("choices", JSONArray().apply {
+                            put(JSONObject().apply {
+                                put("index", 0)
+                                put("text", "")
+                                put("finish_reason", "stop")
+                            })
+                        })
+                    }
+                    sendSseChunk(out, finalChunk.toString())
+                    sendSseRaw(out, "data: [DONE]\n\n")
+                }
+                is GenerationEvent.Error -> {
+                    sendSseRaw(out, "data: [DONE]\n\n")
+                    throw event.throwable
+                }
+                else -> {}
             }
         }
-        onJobStarted(currentJob)
-        currentJob.join()
     }
 
-    private fun sendSseChunk(out: OutputStream, jsonStr: String): Boolean {
-        return sendSseRaw(out, "data: $jsonStr\n\n")
+    private fun sendSseChunk(out: OutputStream, jsonStr: String) {
+        sendSseRaw(out, "data: $jsonStr\n\n")
     }
 
-    private fun sendSseRaw(out: OutputStream, rawText: String): Boolean {
-        return try {
-            out.write(rawText.toByteArray(Charsets.UTF_8))
-            out.flush()
-            true
-        } catch (_: Exception) {
-            false
-        }
+    private fun sendSseRaw(out: OutputStream, rawText: String) {
+        out.write(rawText.toByteArray(Charsets.UTF_8))
+        out.flush()
     }
 
     private fun sendJsonResponse(out: OutputStream, statusCode: Int, body: String) {
@@ -741,9 +769,37 @@ class OpenAiHttpServer(
         }
     }
 
+    /**
+     * Parses HTTP request line and headers using ASCII bytes,
+     * and strictly reads exact Content-Length BYTES before UTF-8 decoding.
+     */
     private fun parseHttpRequest(inputStream: InputStream): HttpRequest? {
-        val reader = BufferedReader(InputStreamReader(inputStream, Charsets.UTF_8))
-        val requestLine = reader.readLine() ?: return null
+        val headerBytes = ByteArrayOutputStream()
+        var state = 0
+        var b: Int
+        while (inputStream.read().also { b = it } != -1) {
+            headerBytes.write(b)
+            when (state) {
+                0 -> if (b == '\r'.code) state = 1 else state = 0
+                1 -> if (b == '\n'.code) state = 2 else if (b == '\r'.code) state = 1 else state = 0
+                2 -> if (b == '\r'.code) state = 3 else state = 0
+                3 -> if (b == '\n'.code) {
+                    state = 4
+                    break
+                } else if (b == '\r'.code) {
+                    state = 1
+                } else {
+                    state = 0
+                }
+            }
+        }
+        if (state != 4) return null
+
+        val headerString = headerBytes.toString(Charsets.US_ASCII.name())
+        val lines = headerString.split("\r\n")
+        if (lines.isEmpty()) return null
+
+        val requestLine = lines[0]
         val parts = requestLine.split(" ")
         if (parts.size < 2) return null
 
@@ -751,27 +807,30 @@ class OpenAiHttpServer(
         val path = parts[1]
         val headers = mutableMapOf<String, String>()
 
-        var line = reader.readLine()
-        while (!line.isNullOrBlank()) {
+        for (i in 1 until lines.size) {
+            val line = lines[i]
             val colonIdx = line.indexOf(':')
             if (colonIdx > 0) {
                 val name = line.substring(0, colonIdx).trim().lowercase()
                 val value = line.substring(colonIdx + 1).trim()
                 headers[name] = value
             }
-            line = reader.readLine()
         }
 
+        // Read exact byte Content-Length to avoid UTF-8 character length truncation/mismatch
         val contentLength = headers["content-length"]?.toIntOrNull() ?: 0
         val body = if (contentLength > 0) {
-            val buffer = CharArray(contentLength)
-            var readTotal = 0
-            while (readTotal < contentLength) {
-                val read = reader.read(buffer, readTotal, contentLength - readTotal)
-                if (read == -1) break
-                readTotal += read
+            val bodyBytes = ByteArray(contentLength)
+            var totalRead = 0
+            while (totalRead < contentLength) {
+                val count = inputStream.read(bodyBytes, totalRead, contentLength - totalRead)
+                if (count == -1) break
+                totalRead += count
             }
-            String(buffer, 0, readTotal)
+            if (totalRead < contentLength) {
+                return null
+            }
+            String(bodyBytes, 0, totalRead, Charsets.UTF_8)
         } else {
             ""
         }

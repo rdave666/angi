@@ -9,7 +9,8 @@ import kotlinx.coroutines.flow.flow
  * It is NEVER silently substituted for production inference.
  */
 class FakeInferenceEngine(
-    private val simulatedTokens: List<String> = listOf("Fake", " response", " for", " testing.")
+    private val simulatedTokens: List<String> = listOf("Fake", " response", " for", " testing."),
+    var tokenDelayMs: Long = 0L
 ) : InferenceEngine {
 
     private var loadedModel: ModelDescriptor? = null
@@ -36,6 +37,9 @@ class FakeInferenceEngine(
         state = RuntimeState.GENERATION_ACTIVE
         try {
             for (token in simulatedTokens) {
+                if (tokenDelayMs > 0) {
+                    kotlinx.coroutines.delay(tokenDelayMs)
+                }
                 emit(GenerationEvent.Token(token))
             }
             emit(GenerationEvent.Completed)

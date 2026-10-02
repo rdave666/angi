@@ -537,7 +537,7 @@ fun SettingsScreen(
                                 )
                             }
                             Switch(
-                                checked = settings.isApiServerEnabled,
+                                checked = apiServerState.isRunning,
                                 onCheckedChange = { viewModel.toggleApiServer(it, context) },
                                 colors = SwitchDefaults.colors(
                                     checkedThumbColor = AngiDarkBackground,
@@ -624,8 +624,15 @@ fun SettingsScreen(
                         Spacer(modifier = Modifier.height(12.dp))
 
                         // Endpoint & Copy Endpoint
-                        val currentHost = if (settings.apiServerBindLan) "0.0.0.0" else "127.0.0.1"
-                        val endpoint = "http://$currentHost:${settings.apiServerPort}"
+                        val isLan = settings.apiServerBindLan
+                        val lanIp = apiServerState.lanIp ?: com.example.angi.api.NetworkUtils.getLocalIpv4Address()
+                        val endpointDisplay = when {
+                            !isLan -> "http://127.0.0.1:${settings.apiServerPort}/v1"
+                            lanIp != null -> "http://$lanIp:${settings.apiServerPort}/v1"
+                            else -> "LAN address unavailable"
+                        }
+                        val canCopyEndpoint = !isLan || lanIp != null
+
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -639,19 +646,24 @@ fun SettingsScreen(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = "$endpoint/v1",
+                                    text = endpointDisplay,
                                     fontSize = 12.sp,
                                     fontFamily = FontFamily.Monospace,
-                                    color = AngiPrimary,
+                                    color = if (canCopyEndpoint) AngiPrimary else AngiTextTertiary,
                                     modifier = Modifier
                                         .weight(1f)
                                         .testTag("api_server_endpoint_text")
                                 )
                                 OutlinedButton(
                                     onClick = {
-                                        clipboardManager.setText(AnnotatedString("$endpoint/v1"))
-                                        Toast.makeText(context, "Endpoint copied", Toast.LENGTH_SHORT).show()
+                                        if (canCopyEndpoint) {
+                                            clipboardManager.setText(AnnotatedString(endpointDisplay))
+                                            Toast.makeText(context, "Endpoint copied", Toast.LENGTH_SHORT).show()
+                                        } else {
+                                            Toast.makeText(context, "LAN address unavailable", Toast.LENGTH_SHORT).show()
+                                        }
                                     },
+                                    enabled = canCopyEndpoint,
                                     modifier = Modifier.testTag("btn_copy_endpoint")
                                 ) {
                                     Icon(Icons.Default.ContentCopy, contentDescription = "Copy Endpoint", modifier = Modifier.size(12.dp))
