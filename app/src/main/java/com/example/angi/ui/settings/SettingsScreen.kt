@@ -108,6 +108,8 @@ fun SettingsScreen(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            item { PhoneBridgeSettings() }
+
             // Compute Unit Selection
             item {
                 Card(

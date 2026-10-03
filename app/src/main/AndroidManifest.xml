@@ -46,6 +46,14 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Embedded OpenAI-compatible local inference API server" />
         </service>
+        <service
+            android:name="com.example.angi.bridge.PhoneBridgeService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="User-enabled outbound phone bridge for remote development" />
+        </service>
     </application>
 
 </manifest>

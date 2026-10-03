@@ -1,3 +1,8 @@
+import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.file.RegularFileProperty
+import org.gradle.api.tasks.InputFile
+import org.gradle.api.tasks.OutputDirectory
+import org.gradle.api.tasks.TaskAction
 import com.google.gms.googleservices.GoogleServicesPlugin.MissingGoogleServicesStrategy
 
 plugins {
@@ -17,8 +22,8 @@ android {
     applicationId = "com.aistudio.angi.wkvq"
     minSdk = 27
     targetSdk = 36
-    versionCode = 12
-    versionName = "0.2.0"
+    versionCode = 13
+    versionName = "0.2.1"
 
     ndk {
       abiFilters.clear()
@@ -152,4 +157,22 @@ dependencies {
   debugImplementation(libs.androidx.compose.ui.tooling)
   "ksp"(libs.androidx.room.compiler)
   "ksp"(libs.moshi.kotlin.codegen)
+}
+
+// Bundle the same tested worker used by the relay/client tooling into the APK.
+abstract class BundlePhoneBridgeAssets : DefaultTask() {
+  @get:InputFile abstract val script: RegularFileProperty
+  @get:OutputDirectory abstract val outputDirectory: DirectoryProperty
+  @TaskAction fun bundle() {
+    val target = outputDirectory.file("phone_bridge/bridge.py").get().asFile
+    target.parentFile.mkdirs()
+    script.get().asFile.copyTo(target, overwrite = true)
+  }
+}
+val bundlePhoneBridgeAssets = tasks.register<BundlePhoneBridgeAssets>("bundlePhoneBridgeAssets") {
+  script.set(rootProject.layout.projectDirectory.file("connectors/phone_bridge/bridge.py"))
+  outputDirectory.set(layout.buildDirectory.dir("generated/phoneBridgeAssets"))
+}
+androidComponents.onVariants { variant ->
+  variant.sources.assets?.addGeneratedSourceDirectory(bundlePhoneBridgeAssets, BundlePhoneBridgeAssets::outputDirectory)
 }

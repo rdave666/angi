@@ -1,8 +1,8 @@
 # ANGI — Current System State
 
-**Current App Version**: `0.2.0` (build `12`)  
+**Current App Version**: `0.2.1` (build `13`)
 **Current HEAD**: `main`  
-**Last Updated**: 2026-10-02
+**Last Updated**: 2026-10-03
 
 ---
 
@@ -116,6 +116,16 @@
     - Lint check passed (`:app:lintDebug`).
     - [VERIFIED]
 
+13. **Outbound Phone Bridge (v0.2.1 / build 13)**:
+    - APK bundles the standard-library Python worker from `connectors/phone_bridge/bridge.py` through the Android generated-assets API.
+    - Settings → Remote Phone Bridge stores relay HTTPS URL and a private worker token, with explicit shell/Codex opt-ins and Connect/Disconnect/Forget controls.
+    - User-started foreground service runs the worker through the existing `LinuxSandboxManager`/PRoot Debian installation. No inbound phone port or second rootfs; no silent reboot/app auto-start.
+    - Authenticated relay, CLI and stdio MCP tools queue status/API/shell/Codex jobs and retrieve results. Separate worker/controller tokens; redirect rejection, bounded output/timeouts, durable result delivery and no automatic replay of uncertain executions.
+    - API forwarding supports health, model listing and non-streaming chat. Codex starts independent `codex exec` tasks using local authentication and its workspace-write sandbox; it must already be installed in ANGI's Debian environment.
+    - Worker preferences and result state are excluded from Android backup/device transfer. Relay deployment, S23 pairing, Android service lifecycle and real on-device Codex execution remain NOT VERIFIED.
+    - Python integration tests: 21 passed. Android unit tests, lint and debug APK build passed in the cloud. Bundled worker bytes match the tested source; physical device acceptance remains pending.
+    - Setup: `connectors/phone_bridge/README.md`. HTTPS relay hosting is provider-independent; Cloudflare Tunnel/ngrok are optional alternatives.
+
 ---
 
 ## Unresolved Defects
@@ -126,11 +136,11 @@
 
 ## CI & Build State
 
-- **App Version**: `v0.2.0` (Build `12`)
-- **Local Build (`compile_applet`)**: VERIFIED (Clean build)
-- **Local Unit Tests (`testDebugUnitTest`)**: VERIFIED (All tests passing)
+- **App Version**: `v0.2.1` (Build `13`)
+- **Cloud Debug APK (`assembleDebug`)**: VERIFIED (v0.2.1 / build 13)
+- **Cloud Unit Tests (`testDebugUnitTest`)**: VERIFIED (76 passed, 1 skipped)
 - **Lint Check (`lintDebug`)**: VERIFIED (Passed with 0 errors)
-- **Remote CI State**: VERIFIED READY (`.github/workflows/build-apk.yml`)
+- **Remote CI State**: Workflow configured (`.github/workflows/build-apk.yml`); remote run outcome not independently verified.
 
 ---
 
