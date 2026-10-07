@@ -109,6 +109,7 @@ object DebianDistroSpec {
         "python3",
         "python3-pip",
         "nodejs",
-        "npm"
+        "npm",
+        "util-linux"
     )
 }
