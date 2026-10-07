@@ -50,6 +50,7 @@ class SettingsRepository(
 ) : CapabilityPolicy {
 
     private val prefs: SharedPreferences = context.getSharedPreferences("angi_settings", Context.MODE_PRIVATE)
+    private val secretPrefs: SharedPreferences = context.getSharedPreferences("angi_external_secrets", Context.MODE_PRIVATE)
 
     private val _settings = MutableStateFlow(loadSettings())
     val settings: StateFlow<AngiSettings> = _settings.asStateFlow()
@@ -92,7 +93,7 @@ class SettingsRepository(
                 InferenceSource.valueOf(prefs.getString("inference_source", InferenceSource.LOCAL.name)!!)
             }.getOrDefault(InferenceSource.LOCAL),
             externalApiBaseUrl = prefs.getString("external_api_base_url", "") ?: "",
-            externalApiKey = prefs.getString("external_api_key", "") ?: "",
+            externalApiKey = secretPrefs.getString("external_api_key", "") ?: "",
             externalModelId = prefs.getString("external_model_id", "") ?: ""
         )
     }
@@ -125,8 +126,10 @@ class SettingsRepository(
             .putString("api_server_key", newSettings.apiServerApiKey)
             .putString("inference_source", newSettings.inferenceSource.name)
             .putString("external_api_base_url", newSettings.externalApiBaseUrl)
-            .putString("external_api_key", newSettings.externalApiKey)
             .putString("external_model_id", newSettings.externalModelId)
+            .apply()
+        secretPrefs.edit()
+            .putString("external_api_key", newSettings.externalApiKey)
             .apply()
         _settings.value = newSettings
     }
