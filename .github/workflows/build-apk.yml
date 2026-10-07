@@ -46,19 +46,53 @@ jobs:
             fi
           fi
 
-          # Ensure debug.keystore exists
-          if [ ! -f "debug.keystore" ]; then
-            if [ -f "debug.keystore.base64" ]; then
-              echo "Decoding debug.keystore from base64..."
-              base64 -d debug.keystore.base64 > debug.keystore
-            else
-              echo "Generating debug.keystore..."
-              keytool -genkey -v -keystore debug.keystore \
-                -storepass android -alias androiddebugkey -keypass android \
-                -keyalg RSA -keysize 2048 -validity 10000 \
-                -dname "CN=Android Debug,O=Android,C=US"
-            fi
+          # Stable development signing identity.
+          #
+          # Never generate a random debug key on an ephemeral CI runner: that
+          # changes the APK signature and forces Android to uninstall the old app.
+          #
+          # Development builds intentionally use the fixed AOSP test signing key
+          # from the pinned Android 14 source tag. This public key is DEVELOPMENT
+          # ONLY and must never be used for a production/Play release.
+          AOSP_BUILD_REF="android-14.0.0_r1"
+          AOSP_KEY_BASE="https://raw.githubusercontent.com/aosp-mirror/platform_build/${AOSP_BUILD_REF}/target/product/security"
+
+          curl --fail --silent --show-error --location \
+            "${AOSP_KEY_BASE}/testkey.pk8" \
+            --output aosp-testkey.pk8
+          curl --fail --silent --show-error --location \
+            "${AOSP_KEY_BASE}/testkey.x509.pem" \
+            --output aosp-testkey.x509.pem
+
+          echo "495675d32e89a149d5abe191f4e9c0e218b9068714e9b53a7c91e164a0741a23  aosp-testkey.pk8" | sha256sum --check --strict
+          echo "a4384ba815b9499a5ce349b4e33c1755278873fe2eac150a068823f526e6dbde  aosp-testkey.x509.pem" | sha256sum --check --strict
+
+          openssl pkcs8 -inform DER -nocrypt \
+            -in aosp-testkey.pk8 \
+            -out aosp-testkey.pem
+          openssl pkcs12 -export \
+            -inkey aosp-testkey.pem \
+            -in aosp-testkey.x509.pem \
+            -name androiddebugkey \
+            -out debug.keystore \
+            -passout pass:android
+
+          SIGNING_SHA256=$(keytool -list -v \
+            -keystore debug.keystore \
+            -storepass android \
+            -alias androiddebugkey \
+            | sed -n 's/^[[:space:]]*SHA256: //p' \
+            | tr -d ':' \
+            | tr '[:upper:]' '[:lower:]')
+
+          EXPECTED_SIGNING_SHA256="a40da80a59d170caa950cf15c18c454d47a39b26989d8b640ecd745ba71bf5dc"
+          if [ "$SIGNING_SHA256" != "$EXPECTED_SIGNING_SHA256" ]; then
+            echo "::error::Unexpected development signing certificate: $SIGNING_SHA256"
+            exit 1
           fi
+          echo "Stable development signing certificate verified: $SIGNING_SHA256"
+
+          rm -f aosp-testkey.pk8 aosp-testkey.x509.pem aosp-testkey.pem
 
           # Ensure gradlew has execute permissions
           chmod +x gradlew
@@ -126,6 +160,23 @@ jobs:
 
           echo "=== Inspecting APK native libraries and ABI packaging ==="
           unzip -l "$VERSIONED_APK_PATH" | grep -E "lib/|assets/" || true
+
+          echo "=== Verifying APK signing identity ==="
+          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)
+          if [ -z "$APKSIGNER" ]; then
+            echo "::error::apksigner not found"
+            exit 1
+          fi
+          APK_SIGNING_SHA256=$("$APKSIGNER" verify --print-certs "$VERSIONED_APK_PATH" \
+            | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' \
+            | head -n 1 \
+            | tr '[:upper:]' '[:lower:]')
+          EXPECTED_SIGNING_SHA256="a40da80a59d170caa950cf15c18c454d47a39b26989d8b640ecd745ba71bf5dc"
+          if [ "$APK_SIGNING_SHA256" != "$EXPECTED_SIGNING_SHA256" ]; then
+            echo "::error::APK was signed by unexpected certificate: $APK_SIGNING_SHA256"
+            exit 1
+          fi
+          echo "APK signing identity verified: $APK_SIGNING_SHA256"
 
           echo "=== CI Verification Note ==="
           echo "CI verified code compilation, unit/Robolectric tests, Android lint, and APK packaging."

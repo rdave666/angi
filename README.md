@@ -2,7 +2,7 @@
 
 # ANGI
 
-**Current version: 0.2.2 (build 14)**
+**Current version: 0.2.3 (build 15)**
 
 ANGI is an Android AI assistant built around local Qualcomm GenieX inference, an isolated Debian/PRoot workspace, tool execution, an OpenAI-compatible local API, and an outbound phone bridge.
 
@@ -27,3 +27,12 @@ The external API key is stored separately from general settings and excluded fro
 ANGI includes an outbound phone bridge for remote diagnostics, Debian commands and optional Codex tasks. Configure it in **Settings → Remote Phone Bridge**.
 
 [Relay, pairing and MCP setup](connectors/phone_bridge/README.md).
+
+
+## Development APK upgrades
+
+Starting with **0.2.3 / build 15**, CI uses one fixed development signing identity instead of generating a new random debug key on every GitHub Actions runner. Builds 15+ therefore install as normal Android updates over one another and preserve ANGI app data, model metadata, settings and the Debian/PRoot installation.
+
+**One-time transition:** builds 14 and earlier were signed with ephemeral CI keys. Android cannot update an installed APK to a differently signed APK, so moving from any pre-15 build to build 15 requires one final uninstall/reinstall. After build 15 is installed, later development APKs should update in place.
+
+The fixed signing identity is the public AOSP test key and is for development builds only. It must never be used for a production/Play release.
