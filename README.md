@@ -2,7 +2,7 @@
 
 # ANGI
 
-**Current version: 0.2.5 (build 17)**
+**Current version: 0.2.6 (build 18)**
 
 ANGI is an Android AI assistant built around local Qualcomm GenieX inference, an isolated Debian/PRoot workspace, tool execution, an OpenAI-compatible local API, and an outbound phone bridge.
 
@@ -61,3 +61,12 @@ Interactive input sent to a running process is not duplicated into ANGI's consol
 ANGI 0.2.5 / build 17 adds `/root/.local/bin` to the default Debian/PRoot `PATH`. The official Codex installer places the CLI there, so new ANGI console sessions and the phone bridge can find `codex` directly without manually exporting PATH each time.
 
 After installing Codex, use **Reset Shell** in the Console (or restart the phone bridge) so the new process environment is picked up.
+
+
+## Pseudo-terminal console mode
+
+ANGI 0.2.6 / build 18 adds a real **TTY mode** to the in-app Debian Console. When enabled (the default), commands are launched through Debian's `script` pseudo-terminal helper so interactive CLIs see a terminal instead of an open pipe.
+
+This fixes tools such as Codex hanging on messages like `Reading additional input from stdin...`. Shell-state commands such as `cd` and `export` still execute directly in the persistent shell so working directory and environment changes survive between commands.
+
+Fresh Debian installs include `util-linux` (which provides `script`). Existing installations that do not already have it can run `apt update && apt install -y util-linux` once.
