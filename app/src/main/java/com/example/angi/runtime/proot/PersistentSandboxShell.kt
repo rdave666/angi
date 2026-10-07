@@ -36,6 +36,7 @@ class PersistentSandboxShell(
         val nonce: String,
         val stdoutBuf: StringBuilder = StringBuilder(),
         val stderrBuf: StringBuilder = StringBuilder(),
+        val onOutput: ((text: String, isStderr: Boolean) -> Unit)? = null,
         val done: CompletableDeferred<Result> = CompletableDeferred()
     )
 
@@ -48,12 +49,13 @@ class PersistentSandboxShell(
 
     suspend fun run(
         command: String,
-        timeoutSeconds: Long = 30L
+        timeoutSeconds: Long = 30L,
+        onOutput: ((text: String, isStderr: Boolean) -> Unit)? = null
     ): Map<String, Any> = mutex.withLock {
         ensureShell()
         val h = handle ?: return@withLock errorMap("Shell failed to initialize")
         val nonce = (0 until 16).map { "0123456789abcdef".random() }.joinToString("")
-        val sink = CommandSink(nonce)
+        val sink = CommandSink(nonce = nonce, onOutput = onOutput)
         currentSink.set(sink)
 
         // Sentinel command: run user command, capture exit code, then emit sentinel to stderr with cwd
@@ -156,6 +158,7 @@ class PersistentSandboxShell(
             if (sink.stdoutBuf.isNotEmpty()) sink.stdoutBuf.append('\n')
             sink.stdoutBuf.append(line)
         }
+        runCatching { sink.onOutput?.invoke(line, false) }
     }
 
     private fun dispatchStderr(line: String) {
@@ -183,6 +186,7 @@ class PersistentSandboxShell(
             if (sink.stderrBuf.isNotEmpty()) sink.stderrBuf.append('\n')
             sink.stderrBuf.append(line)
         }
+        runCatching { sink.onOutput?.invoke(line, true) }
     }
 
     private fun sendSignalToChildren(parentPid: Int, signal: String) {

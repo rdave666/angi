@@ -1,6 +1,6 @@
 # ANGI — Current System State
 
-**Current App Version**: `0.2.3` (build `15`)
+**Current App Version**: `0.2.4` (build `16`)
 **Current HEAD**: `main`  
 **Last Updated**: 2026-10-07
 
@@ -69,10 +69,10 @@
    - [VERIFIED]
 
 9. **Versioned Builds & Strict CI Release Automation**:
-   - Gradle `app/build.gradle.kts` single source of truth: `versionName = "0.2.3"`, `versionCode = 15`. No hard-coded fallbacks in CI.
+   - Gradle `app/build.gradle.kts` single source of truth: `versionName = "0.2.4"`, `versionCode = 16`. No hard-coded fallbacks in CI.
    - Dynamic version display from `BuildConfig` in `SettingsScreen` and `DiagnosticsScreen` under App Version & Build.
-   - Subtle monospace footer (`ANGI v0.2.3 (build 15)`) rendered across Settings and Diagnostics screens.
-   - CI workflow (`.github/workflows/build-apk.yml`) extracts Gradle `versionName`/`versionCode` dynamically, creates `angi-v0.2.3-build15-debug.apk`, force-updates `dev-latest` tag to current `${GITHUB_SHA}`, and updates `ANGI Development Build` release asset on `dev-latest`.
+   - Subtle monospace footer (`ANGI v0.2.4 (build 16)`) rendered across Settings and Diagnostics screens.
+   - CI workflow (`.github/workflows/build-apk.yml`) extracts Gradle `versionName`/`versionCode` dynamically, creates `angi-v0.2.4-build16-debug.apk`, force-updates `dev-latest` tag to current `${GITHUB_SHA}`, and updates `ANGI Development Build` release asset on `dev-latest`.
    - [VERIFIED]
 
 10. **Model Unload Control & State Consistency**:
@@ -145,6 +145,17 @@
     - One unavoidable transition remains: builds 14 and earlier used random CI signatures, so the first move to build 15 requires one final uninstall/reinstall.
     - The AOSP test key is development-only and must never be used for a production/Play release.
 
+16. **In-App Debian Command Console (v0.2.4 / build 16)**:
+    - New top-level Console tab uses the existing `LinuxSandboxManager` / persistent PRoot shell directly; no model, relay or VPS dependency.
+    - Default console cwd is `/workspace`, shared with ANGI Linux tools and the phone bridge.
+    - `PersistentSandboxShell.run()` now supports a live output observer for stdout/stderr while preserving existing buffered tool results.
+    - Console renders streaming stdout/stderr, persistent cwd, completion/exit status and bounded scrollback.
+    - While a process is running, the same input field sends stdin directly to that foreground process for interactive/device-auth workflows.
+    - Stop sends the existing foreground cancellation path; Reset Shell destroys the console shell and returns the next session to `/workspace`.
+    - Console layout uses IME padding so the command field remains accessible above the Android keyboard.
+    - Interactive input is not mirrored into ANGI console scrollback.
+    - Physical S23 interactive/login acceptance remains pending.
+
 ---
 
 ## Unresolved Defects
@@ -155,7 +166,7 @@
 
 ## CI & Build State
 
-- **App Version**: `v0.2.3` (Build `15`)
+- **App Version**: `v0.2.4` (Build `16`)
 - **Cloud Debug APK (`assembleDebug`)**: pending final v0.2.2 / build 14 workflow
 - **Cloud Unit Tests (`testDebugUnitTest`)**: pending final v0.2.2 / build 14 workflow
 - **Lint Check (`lintDebug`)**: pending final v0.2.2 / build 14 workflow
