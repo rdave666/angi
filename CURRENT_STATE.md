@@ -1,8 +1,8 @@
 # ANGI — Current System State
 
-**Current App Version**: `0.2.1` (build `13`)
+**Current App Version**: `0.2.2` (build `14`)
 **Current HEAD**: `main`  
-**Last Updated**: 2026-10-03
+**Last Updated**: 2026-10-07
 
 ---
 
@@ -69,10 +69,10 @@
    - [VERIFIED]
 
 9. **Versioned Builds & Strict CI Release Automation**:
-   - Gradle `app/build.gradle.kts` single source of truth: `versionName = "0.2.0"`, `versionCode = 12`. No hard-coded fallbacks in CI.
+   - Gradle `app/build.gradle.kts` single source of truth: `versionName = "0.2.2"`, `versionCode = 14`. No hard-coded fallbacks in CI.
    - Dynamic version display from `BuildConfig` in `SettingsScreen` and `DiagnosticsScreen` under App Version & Build.
-   - Subtle monospace footer (`ANGI v0.2.0 (build 12)`) rendered across Settings and Diagnostics screens.
-   - CI workflow (`.github/workflows/build-apk.yml`) extracts Gradle `versionName`/`versionCode` dynamically, creates `angi-v0.2.0-build12-debug.apk`, force-updates `dev-latest` tag to current `${GITHUB_SHA}`, and updates `ANGI Development Build` release asset on `dev-latest`.
+   - Subtle monospace footer (`ANGI v0.2.2 (build 14)`) rendered across Settings and Diagnostics screens.
+   - CI workflow (`.github/workflows/build-apk.yml`) extracts Gradle `versionName`/`versionCode` dynamically, creates `angi-v0.2.2-build14-debug.apk`, force-updates `dev-latest` tag to current `${GITHUB_SHA}`, and updates `ANGI Development Build` release asset on `dev-latest`.
    - [VERIFIED]
 
 10. **Model Unload Control & State Consistency**:
@@ -116,7 +116,7 @@
     - Lint check passed (`:app:lintDebug`).
     - [VERIFIED]
 
-13. **Outbound Phone Bridge (v0.2.1 / build 13)**:
+13. **Outbound Phone Bridge (v0.2.2 / build 14)**:
     - APK bundles the standard-library Python worker from `connectors/phone_bridge/bridge.py` through the Android generated-assets API.
     - Settings → Remote Phone Bridge stores relay HTTPS URL and a private worker token, with explicit shell/Codex opt-ins and Connect/Disconnect/Forget controls.
     - User-started foreground service runs the worker through the existing `LinuxSandboxManager`/PRoot Debian installation. No inbound phone port or second rootfs; no silent reboot/app auto-start.
@@ -125,6 +125,16 @@
     - Worker preferences and result state are excluded from Android backup/device transfer. Relay deployment, S23 pairing, Android service lifecycle and real on-device Codex execution remain NOT VERIFIED.
     - Python integration tests: 21 passed. Android unit tests, lint and debug APK build passed in the cloud. Bundled worker bytes match the tested source; physical device acceptance remains pending.
     - Setup: `connectors/phone_bridge/README.md`. HTTPS relay hosting is provider-independent; Cloudflare Tunnel/ngrok are optional alternatives.
+
+14. **External OpenAI-Compatible Model Provider (v0.2.2 / build 14)**:
+    - Settings adds Local / External inference source selection while preserving the loaded local GenieX runtime.
+    - External provider accepts an OpenAI-compatible base URL and API key, normalizes optional `/v1`, fetches `GET /v1/models`, and persists selected model ID.
+    - External chat uses `POST /v1/chat/completions` with SSE streaming and request cancellation.
+    - Standard OpenAI function/tool calls are translated into the existing ANGI `ToolRegistry` / `ToolExecutor` loop.
+    - Existing Debian/PRoot tools are reused; `linux_write_file` writes into the same `/workspace` storage tree used by local models and the phone bridge.
+    - Tool result messages preserve the provider's `tool_call_id` across follow-up turns.
+    - External API key is stored in a dedicated private preferences file excluded from cloud backup and device transfer.
+    - URL normalization and `/v1/models` parsing tests added. Physical endpoint/tool-call acceptance remains pending.
 
 ---
 
@@ -136,10 +146,10 @@
 
 ## CI & Build State
 
-- **App Version**: `v0.2.1` (Build `13`)
-- **Cloud Debug APK (`assembleDebug`)**: VERIFIED (v0.2.1 / build 13)
-- **Cloud Unit Tests (`testDebugUnitTest`)**: VERIFIED (76 passed, 1 skipped)
-- **Lint Check (`lintDebug`)**: VERIFIED (Passed with 0 errors)
+- **App Version**: `v0.2.2` (Build `14`)
+- **Cloud Debug APK (`assembleDebug`)**: pending final v0.2.2 / build 14 workflow
+- **Cloud Unit Tests (`testDebugUnitTest`)**: pending final v0.2.2 / build 14 workflow
+- **Lint Check (`lintDebug`)**: pending final v0.2.2 / build 14 workflow
 - **Remote CI State**: Workflow configured (`.github/workflows/build-apk.yml`); remote run outcome not independently verified.
 
 ---
