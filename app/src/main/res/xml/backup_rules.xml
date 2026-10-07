@@ -7,6 +7,7 @@
 -->
 <full-backup-content>
     <exclude domain="sharedpref" path="angi_phone_bridge.xml"/>
+    <exclude domain="sharedpref" path="angi_external_secrets.xml"/>
     <exclude domain="file" path="linux-sandbox/rootfs/root/.local/state/angi-bridge/"/>
     <!--
    <include domain="sharedpref" path="."/>

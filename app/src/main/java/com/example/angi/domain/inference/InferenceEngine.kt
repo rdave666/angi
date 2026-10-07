@@ -1,6 +1,8 @@
 package com.example.angi.domain.inference
 
+import com.example.angi.domain.conversation.Message
 import com.example.angi.domain.models.ModelDescriptor
+import com.example.angi.domain.tools.ToolDefinition
 import kotlinx.coroutines.flow.Flow
 
 /**
@@ -27,13 +29,21 @@ interface InferenceEngine {
     ): Result<String> = Result.failure(UnsupportedOperationException("Chat template not implemented"))
 }
 
+data class ChatRequestContext(
+    val messages: List<Message>,
+    val availableTools: List<ToolDefinition> = emptyList(),
+    val systemInstruction: String? = null
+)
+
 data class GenerationRequest(
     val prompt: String,
     val maxTokens: Int = 1024,
     val temperature: Float = 0.7f,
     val topP: Float = 0.9f,
     val stopWords: List<String> = emptyList(),
-    val systemPrompt: String? = null
+    val systemPrompt: String? = null,
+    val chatContext: ChatRequestContext? = null,
+    val modelId: String? = null
 )
 
 sealed interface GenerationEvent {

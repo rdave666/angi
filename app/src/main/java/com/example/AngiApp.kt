@@ -16,6 +16,7 @@ import com.example.angi.domain.saf.AndroidSharedResourceRegistry
 import com.example.angi.domain.tools.ToolExecutor
 import com.example.angi.domain.tools.ToolRegistry
 import com.example.angi.runtime.geniex.GenieXInferenceEngine
+import com.example.angi.runtime.openai.OpenAiCompatibleInferenceEngine
 import com.example.angi.runtime.proot.LinuxSandboxManager
 import com.example.angi.tools.android.AndroidListDirectoryTool
 import com.example.angi.tools.android.AndroidReadFileTool
@@ -65,6 +66,9 @@ class AngiApp : Application() {
         private set
 
     lateinit var inferenceEngine: InferenceEngine
+        private set
+
+    lateinit var externalInferenceEngine: OpenAiCompatibleInferenceEngine
         private set
 
     lateinit var conversationService: ConversationService
@@ -119,12 +123,14 @@ class AngiApp : Application() {
 
         toolExecutor = ToolExecutor(toolRegistry, settingsRepository)
         inferenceEngine = GenieXInferenceEngine(applicationContext)
+        externalInferenceEngine = OpenAiCompatibleInferenceEngine(settingsRepository)
 
         conversationService = ConversationService(
             conversationRepository = conversationRepository,
             modelRepository = modelRepository,
             settingsRepository = settingsRepository,
             inferenceEngine = inferenceEngine,
+            externalInferenceEngine = externalInferenceEngine,
             toolRegistry = toolRegistry,
             toolExecutor = toolExecutor
         )

@@ -9,7 +9,7 @@ Codex/controller --HTTPS--> relay <--HTTPS polling-- ANGI on S23
                                                     `-- codex exec (opt in)
 ```
 
-ANGI 0.2.1/build 13 bundles `bridge.py` in its APK and adds **Settings → Remote Phone Bridge**. It uses the existing PRoot Debian installation, not another Linux environment. Python 3 and CA certificates are already included in ANGI's Debian package list. The Linux/macOS relay and controller need Python 3.10+; no pip packages are needed.
+ANGI 0.2.2/build 14 bundles `bridge.py` in its APK and adds **Settings → Remote Phone Bridge**. It uses the existing PRoot Debian installation, not another Linux environment. Python 3 and CA certificates are already included in ANGI's Debian package list. The Linux/macOS relay and controller need Python 3.10+; no pip packages are needed.
 
 ## Choose the relay location
 
