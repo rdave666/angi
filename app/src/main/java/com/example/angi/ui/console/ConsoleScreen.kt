@@ -221,6 +221,16 @@ fun ConsoleScreen(
 
             Spacer(modifier = Modifier.height(8.dp))
 
+            OutlinedButton(
+                onClick = viewModel::toggleTtyMode,
+                enabled = !state.isRunning,
+                modifier = Modifier.fillMaxWidth().testTag("console_tty_mode")
+            ) {
+                Text(if (state.ttyMode) "TTY mode: ON" else "TTY mode: OFF")
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -241,7 +251,11 @@ fun ConsoleScreen(
 
             Spacer(modifier = Modifier.height(6.dp))
             Text(
-                text = "Output appears live line-by-line. Interactive input is sent directly to the foreground process. Input is not echoed into ANGI's console log, so passwords/tokens typed here are not duplicated on screen.",
+                text = if (state.ttyMode) {
+                    "TTY mode is ON: commands run in a pseudo-terminal so interactive CLIs such as Codex behave like a real terminal. Shell-state commands such as cd/export run directly so state persists. Interactive input is not echoed into ANGI's console log."
+                } else {
+                    "TTY mode is OFF: commands use direct pipes. Use this only when a program explicitly expects piped stdin/stdout."
+                },
                 color = AngiTextTertiary,
                 fontSize = 10.sp
             )
