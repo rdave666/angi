@@ -2,7 +2,7 @@
 
 # ANGI
 
-**Current version: 0.2.4 (build 16)**
+**Current version: 0.2.5 (build 17)**
 
 ANGI is an Android AI assistant built around local Qualcomm GenieX inference, an isolated Debian/PRoot workspace, tool execution, an OpenAI-compatible local API, and an outbound phone bridge.
 
@@ -54,3 +54,10 @@ The console:
 This is intended for workflows such as CLI/device authentication where a browser login URL or code must be visible directly on the phone. Example: `codex login --device-auth` after Codex is installed inside ANGI's Debian environment.
 
 Interactive input sent to a running process is not duplicated into ANGI's console output, reducing accidental on-screen exposure of passwords or tokens.
+
+
+## Codex PATH integration
+
+ANGI 0.2.5 / build 17 adds `/root/.local/bin` to the default Debian/PRoot `PATH`. The official Codex installer places the CLI there, so new ANGI console sessions and the phone bridge can find `codex` directly without manually exporting PATH each time.
+
+After installing Codex, use **Reset Shell** in the Console (or restart the phone bridge) so the new process environment is picked up.

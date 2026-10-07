@@ -1,6 +1,6 @@
 # ANGI — Current System State
 
-**Current App Version**: `0.2.4` (build `16`)
+**Current App Version**: `0.2.5` (build `17`)
 **Current HEAD**: `main`  
 **Last Updated**: 2026-10-07
 
@@ -69,10 +69,10 @@
    - [VERIFIED]
 
 9. **Versioned Builds & Strict CI Release Automation**:
-   - Gradle `app/build.gradle.kts` single source of truth: `versionName = "0.2.4"`, `versionCode = 16`. No hard-coded fallbacks in CI.
+   - Gradle `app/build.gradle.kts` single source of truth: `versionName = "0.2.5"`, `versionCode = 17`. No hard-coded fallbacks in CI.
    - Dynamic version display from `BuildConfig` in `SettingsScreen` and `DiagnosticsScreen` under App Version & Build.
-   - Subtle monospace footer (`ANGI v0.2.4 (build 16)`) rendered across Settings and Diagnostics screens.
-   - CI workflow (`.github/workflows/build-apk.yml`) extracts Gradle `versionName`/`versionCode` dynamically, creates `angi-v0.2.4-build16-debug.apk`, force-updates `dev-latest` tag to current `${GITHUB_SHA}`, and updates `ANGI Development Build` release asset on `dev-latest`.
+   - Subtle monospace footer (`ANGI v0.2.5 (build 17)`) rendered across Settings and Diagnostics screens.
+   - CI workflow (`.github/workflows/build-apk.yml`) extracts Gradle `versionName`/`versionCode` dynamically, creates `angi-v0.2.5-build17-debug.apk`, force-updates `dev-latest` tag to current `${GITHUB_SHA}`, and updates `ANGI Development Build` release asset on `dev-latest`.
    - [VERIFIED]
 
 10. **Model Unload Control & State Consistency**:
@@ -156,6 +156,12 @@
     - Interactive input is not mirrored into ANGI console scrollback.
     - Physical S23 interactive/login acceptance remains pending.
 
+17. **Codex Local-Bin PATH Integration (v0.2.5 / build 17)**:
+    - Debian/PRoot default PATH now includes `/root/.local/bin`.
+    - Official Codex installs under `$HOME/.local/bin`, so new Console shells can invoke `codex` directly without a manual `export PATH=...`.
+    - Phone bridge workers launched through the same PRoot environment inherit the same PATH, allowing `shutil.which("codex")` and Codex task execution to detect the installed CLI after reconnect.
+    - Existing running shells/workers must be reset/restarted once to inherit the new environment.
+
 ---
 
 ## Unresolved Defects
@@ -166,7 +172,7 @@
 
 ## CI & Build State
 
-- **App Version**: `v0.2.4` (Build `16`)
+- **App Version**: `v0.2.5` (Build `17`)
 - **Cloud Debug APK (`assembleDebug`)**: pending final v0.2.2 / build 14 workflow
 - **Cloud Unit Tests (`testDebugUnitTest`)**: pending final v0.2.2 / build 14 workflow
 - **Lint Check (`lintDebug`)**: pending final v0.2.2 / build 14 workflow
