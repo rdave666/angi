@@ -2,7 +2,7 @@
 
 # ANGI
 
-**Current version: 0.2.3 (build 15)**
+**Current version: 0.2.4 (build 16)**
 
 ANGI is an Android AI assistant built around local Qualcomm GenieX inference, an isolated Debian/PRoot workspace, tool execution, an OpenAI-compatible local API, and an outbound phone bridge.
 
@@ -36,3 +36,21 @@ Starting with **0.2.3 / build 15**, CI uses one fixed development signing identi
 **One-time transition:** builds 14 and earlier were signed with ephemeral CI keys. Android cannot update an installed APK to a differently signed APK, so moving from any pre-15 build to build 15 requires one final uninstall/reinstall. After build 15 is installed, later development APKs should update in place.
 
 The fixed signing identity is the public AOSP test key and is for development builds only. It must never be used for a production/Play release.
+
+
+## In-app Debian console
+
+ANGI 0.2.4 / build 16 adds a **Console** tab that talks directly to the existing Debian/PRoot shell. It does not require a model, the phone bridge, or the VPS.
+
+The console:
+- starts in the shared Debian `/workspace`;
+- runs normal shell commands through the existing persistent PRoot shell;
+- streams stdout and stderr into the app while the command is running;
+- keeps shell state such as current directory and exported environment variables between commands;
+- supports interactive stdin while a process is running;
+- provides Stop, Clear Output, and Reset Shell controls;
+- keeps the command field above the Android keyboard with IME-aware layout.
+
+This is intended for workflows such as CLI/device authentication where a browser login URL or code must be visible directly on the phone. Example: `codex login --device-auth` after Codex is installed inside ANGI's Debian environment.
+
+Interactive input sent to a running process is not duplicated into ANGI's console output, reducing accidental on-screen exposure of passwords or tokens.
