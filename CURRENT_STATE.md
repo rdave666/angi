@@ -1,6 +1,6 @@
 # ANGI — Current System State
 
-**Current App Version**: `0.2.2` (build `14`)
+**Current App Version**: `0.2.3` (build `15`)
 **Current HEAD**: `main`  
 **Last Updated**: 2026-10-07
 
@@ -69,10 +69,10 @@
    - [VERIFIED]
 
 9. **Versioned Builds & Strict CI Release Automation**:
-   - Gradle `app/build.gradle.kts` single source of truth: `versionName = "0.2.2"`, `versionCode = 14`. No hard-coded fallbacks in CI.
+   - Gradle `app/build.gradle.kts` single source of truth: `versionName = "0.2.3"`, `versionCode = 15`. No hard-coded fallbacks in CI.
    - Dynamic version display from `BuildConfig` in `SettingsScreen` and `DiagnosticsScreen` under App Version & Build.
-   - Subtle monospace footer (`ANGI v0.2.2 (build 14)`) rendered across Settings and Diagnostics screens.
-   - CI workflow (`.github/workflows/build-apk.yml`) extracts Gradle `versionName`/`versionCode` dynamically, creates `angi-v0.2.2-build14-debug.apk`, force-updates `dev-latest` tag to current `${GITHUB_SHA}`, and updates `ANGI Development Build` release asset on `dev-latest`.
+   - Subtle monospace footer (`ANGI v0.2.3 (build 15)`) rendered across Settings and Diagnostics screens.
+   - CI workflow (`.github/workflows/build-apk.yml`) extracts Gradle `versionName`/`versionCode` dynamically, creates `angi-v0.2.3-build15-debug.apk`, force-updates `dev-latest` tag to current `${GITHUB_SHA}`, and updates `ANGI Development Build` release asset on `dev-latest`.
    - [VERIFIED]
 
 10. **Model Unload Control & State Consistency**:
@@ -136,6 +136,15 @@
     - External API key is stored in a dedicated private preferences file excluded from cloud backup and device transfer.
     - URL normalization and `/v1/models` parsing tests added. Physical endpoint/tool-call acceptance remains pending.
 
+15. **Stable Development APK Signing (v0.2.3 / build 15)**:
+    - CI no longer creates a fresh random debug keystore on each ephemeral runner.
+    - Development APKs use the fixed AOSP Android 14 test signing identity pinned to `android-14.0.0_r1`.
+    - Source key/certificate downloads are SHA-256 pinned before conversion into the temporary CI keystore.
+    - CI verifies the keystore certificate fingerprint before compilation and verifies the final APK signer after compilation.
+    - Builds 15+ can update one another in place without uninstalling ANGI or deleting its app data.
+    - One unavoidable transition remains: builds 14 and earlier used random CI signatures, so the first move to build 15 requires one final uninstall/reinstall.
+    - The AOSP test key is development-only and must never be used for a production/Play release.
+
 ---
 
 ## Unresolved Defects
@@ -146,7 +155,7 @@
 
 ## CI & Build State
 
-- **App Version**: `v0.2.2` (Build `14`)
+- **App Version**: `v0.2.3` (Build `15`)
 - **Cloud Debug APK (`assembleDebug`)**: pending final v0.2.2 / build 14 workflow
 - **Cloud Unit Tests (`testDebugUnitTest`)**: pending final v0.2.2 / build 14 workflow
 - **Lint Check (`lintDebug`)**: pending final v0.2.2 / build 14 workflow
