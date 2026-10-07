@@ -15,7 +15,8 @@ data class ConsoleUiState(
     val isRunning: Boolean = false,
     val cwd: String = "/workspace",
     val lastExitCode: Int? = null,
-    val status: String = "Ready"
+    val status: String = "Ready",
+    val ttyMode: Boolean = true
 )
 
 class ConsoleViewModel(
@@ -50,6 +51,11 @@ class ConsoleViewModel(
 
     fun setInput(value: String) {
         _uiState.value = _uiState.value.copy(input = value)
+    }
+
+    fun toggleTtyMode() {
+        if (_uiState.value.isRunning) return
+        _uiState.value = _uiState.value.copy(ttyMode = !_uiState.value.ttyMode)
     }
 
     fun submit() {
@@ -94,8 +100,14 @@ class ConsoleViewModel(
                 }
             }
 
+            val commandToRun = if (_uiState.value.ttyMode && shouldUseTty(command)) {
+                wrapWithPseudoTerminal(command)
+            } else {
+                command
+            }
+
             val result = shell.run(
-                command = command,
+                command = commandToRun,
                 timeoutSeconds = COMMAND_TIMEOUT_SECONDS,
                 onOutput = { text, isStderr ->
                     if (text.isNotEmpty()) {
@@ -130,6 +142,22 @@ class ConsoleViewModel(
             commandJob = null
         }
     }
+
+    private fun shouldUseTty(command: String): Boolean {
+        val trimmed = command.trimStart()
+        val statefulBuiltin = Regex("^(cd|export|unset|alias|unalias|umask|source|\\.)(?:\\s|$)")
+        return !statefulBuiltin.containsMatchIn(trimmed)
+    }
+
+    private fun wrapWithPseudoTerminal(command: String): String {
+        val quoted = shellSingleQuote(command)
+        return "if command -v script >/dev/null 2>&1; then " +
+            "script -qefc $quoted /dev/null; " +
+            "else printf '%s\\n' '[console] TTY mode requires util-linux. Run: apt update && apt install -y util-linux' >&2; exit 127; fi"
+    }
+
+    private fun shellSingleQuote(value: String): String =
+        "'" + value.replace("'", "'\"'\"'") + "'"
 
     fun stop() {
         if (!_uiState.value.isRunning) return
