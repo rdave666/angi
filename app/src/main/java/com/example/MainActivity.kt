@@ -37,6 +37,8 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.angi.ui.chat.ChatScreen
 import com.example.angi.ui.chat.ChatViewModel
+import com.example.angi.ui.console.ConsoleScreen
+import com.example.angi.ui.console.ConsoleViewModel
 import com.example.angi.ui.diagnostics.DiagnosticsScreen
 import com.example.angi.ui.diagnostics.DiagnosticsViewModel
 import com.example.angi.ui.models.ModelManagerScreen
@@ -61,6 +63,7 @@ enum class AngiNavDestination(
     CHAT("Chat", Icons.Default.Chat, "nav_tab_chat"),
     MODELS("Models", Icons.Default.Storage, "nav_tab_models"),
     TOOLS("Tools", Icons.Default.Build, "nav_tab_tools"),
+    CONSOLE("Console", Icons.Default.Build, "nav_tab_console"),
     SETTINGS("Settings", Icons.Default.Tune, "nav_tab_settings"),
     DIAGNOSTICS("NPU Diag", Icons.Default.Memory, "nav_tab_diag")
 }
@@ -84,6 +87,7 @@ fun AngiMainApp() {
     val chatViewModel: ChatViewModel = viewModel()
     val modelViewModel: ModelViewModel = viewModel()
     val toolsViewModel: ToolsViewModel = viewModel()
+    val consoleViewModel: ConsoleViewModel = viewModel()
     val settingsViewModel: SettingsViewModel = viewModel()
     val diagnosticsViewModel: DiagnosticsViewModel = viewModel()
 
@@ -163,6 +167,12 @@ fun AngiMainApp() {
             AngiNavDestination.TOOLS -> {
                 ToolsScreen(
                     viewModel = toolsViewModel,
+                    modifier = Modifier.padding(innerPadding)
+                )
+            }
+            AngiNavDestination.CONSOLE -> {
+                ConsoleScreen(
+                    viewModel = consoleViewModel,
                     modifier = Modifier.padding(innerPadding)
                 )
             }
