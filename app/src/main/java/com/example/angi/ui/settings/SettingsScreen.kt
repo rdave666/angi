@@ -109,6 +109,7 @@ fun SettingsScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             item { PhoneBridgeSettings() }
+            item { ExternalModelSettingsCard(viewModel, settings) }
 
             // Compute Unit Selection
             item {
