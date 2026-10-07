@@ -9,6 +9,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
+enum class InferenceSource { LOCAL, EXTERNAL }
+
 data class AngiSettings(
     val computeUnit: ComputeUnit = ComputeUnit.NPU,
     val runtimeType: RuntimeType = RuntimeType.QAIRT,
@@ -35,7 +37,12 @@ data class AngiSettings(
     val isApiServerEnabled: Boolean = false,
     val apiServerPort: Int = 8080,
     val apiServerBindLan: Boolean = false,
-    val apiServerApiKey: String = ""
+    val apiServerApiKey: String = "",
+    // External OpenAI-compatible provider
+    val inferenceSource: InferenceSource = InferenceSource.LOCAL,
+    val externalApiBaseUrl: String = "",
+    val externalApiKey: String = "",
+    val externalModelId: String = ""
 )
 
 class SettingsRepository(
@@ -80,7 +87,13 @@ class SettingsRepository(
                 val generated = "sk-angi-" + java.util.UUID.randomUUID().toString().replace("-", "").take(16)
                 prefs.edit().putString("api_server_key", generated).apply()
                 generated
-            }
+            },
+            inferenceSource = runCatching {
+                InferenceSource.valueOf(prefs.getString("inference_source", InferenceSource.LOCAL.name)!!)
+            }.getOrDefault(InferenceSource.LOCAL),
+            externalApiBaseUrl = prefs.getString("external_api_base_url", "") ?: "",
+            externalApiKey = prefs.getString("external_api_key", "") ?: "",
+            externalModelId = prefs.getString("external_model_id", "") ?: ""
         )
     }
 
@@ -110,6 +123,10 @@ class SettingsRepository(
             .putInt("api_server_port", newSettings.apiServerPort)
             .putBoolean("api_server_bind_lan", newSettings.apiServerBindLan)
             .putString("api_server_key", newSettings.apiServerApiKey)
+            .putString("inference_source", newSettings.inferenceSource.name)
+            .putString("external_api_base_url", newSettings.externalApiBaseUrl)
+            .putString("external_api_key", newSettings.externalApiKey)
+            .putString("external_model_id", newSettings.externalModelId)
             .apply()
         _settings.value = newSettings
     }
