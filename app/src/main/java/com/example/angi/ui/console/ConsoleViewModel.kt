@@ -156,6 +156,7 @@ class ConsoleViewModel(
         )
     }
 
+    @Synchronized
     private fun appendOutput(raw: String) {
         val clean = raw
             .replace(ANSI_OSC, "")
@@ -174,6 +175,9 @@ class ConsoleViewModel(
 
     override fun onCleared() {
         commandJob?.cancel()
+        if (_uiState.value.isRunning) {
+            shell.cancelForeground()
+        }
         super.onCleared()
     }
 }
