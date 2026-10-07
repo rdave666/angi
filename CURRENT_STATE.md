@@ -1,6 +1,6 @@
 # ANGI — Current System State
 
-**Current App Version**: `0.2.5` (build `17`)
+**Current App Version**: `0.2.6` (build `18`)
 **Current HEAD**: `main`  
 **Last Updated**: 2026-10-07
 
@@ -69,10 +69,10 @@
    - [VERIFIED]
 
 9. **Versioned Builds & Strict CI Release Automation**:
-   - Gradle `app/build.gradle.kts` single source of truth: `versionName = "0.2.5"`, `versionCode = 17`. No hard-coded fallbacks in CI.
+   - Gradle `app/build.gradle.kts` single source of truth: `versionName = "0.2.6"`, `versionCode = 18`. No hard-coded fallbacks in CI.
    - Dynamic version display from `BuildConfig` in `SettingsScreen` and `DiagnosticsScreen` under App Version & Build.
-   - Subtle monospace footer (`ANGI v0.2.5 (build 17)`) rendered across Settings and Diagnostics screens.
-   - CI workflow (`.github/workflows/build-apk.yml`) extracts Gradle `versionName`/`versionCode` dynamically, creates `angi-v0.2.5-build17-debug.apk`, force-updates `dev-latest` tag to current `${GITHUB_SHA}`, and updates `ANGI Development Build` release asset on `dev-latest`.
+   - Subtle monospace footer (`ANGI v0.2.6 (build 18)`) rendered across Settings and Diagnostics screens.
+   - CI workflow (`.github/workflows/build-apk.yml`) extracts Gradle `versionName`/`versionCode` dynamically, creates `angi-v0.2.6-build18-debug.apk`, force-updates `dev-latest` tag to current `${GITHUB_SHA}`, and updates `ANGI Development Build` release asset on `dev-latest`.
    - [VERIFIED]
 
 10. **Model Unload Control & State Consistency**:
@@ -162,6 +162,14 @@
     - Phone bridge workers launched through the same PRoot environment inherit the same PATH, allowing `shutil.which("codex")` and Codex task execution to detect the installed CLI after reconnect.
     - Existing running shells/workers must be reset/restarted once to inherit the new environment.
 
+18. **Pseudo-Terminal Console Mode (v0.2.6 / build 18)**:
+    - Console defaults to TTY mode and launches normal commands through Debian `script -qefc ... /dev/null`, giving interactive CLIs a pseudo-terminal.
+    - Fixes Codex `exec` waiting indefinitely on `Reading additional input from stdin...` when the Console's persistent shell is backed by Android pipes.
+    - Stateful shell builtins such as `cd`, `export`, `unset`, aliases, `source`, and `umask` bypass the TTY wrapper so persistent shell state remains intact.
+    - UI exposes a TTY mode ON/OFF control for commands that explicitly need pipe semantics.
+    - New Debian installs include `util-linux` so the `script` PTY helper is available by default; existing installs receive a targeted install hint if it is missing.
+    - Physical S23 Codex exec acceptance remains pending.
+
 ---
 
 ## Unresolved Defects
@@ -172,7 +180,7 @@
 
 ## CI & Build State
 
-- **App Version**: `v0.2.5` (Build `17`)
+- **App Version**: `v0.2.6` (Build `18`)
 - **Cloud Debug APK (`assembleDebug`)**: pending final v0.2.2 / build 14 workflow
 - **Cloud Unit Tests (`testDebugUnitTest`)**: pending final v0.2.2 / build 14 workflow
 - **Lint Check (`lintDebug`)**: pending final v0.2.2 / build 14 workflow
