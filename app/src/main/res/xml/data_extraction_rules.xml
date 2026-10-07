@@ -6,6 +6,7 @@
 <data-extraction-rules>
     <cloud-backup>
         <exclude domain="sharedpref" path="angi_phone_bridge.xml"/>
+    <exclude domain="sharedpref" path="angi_external_secrets.xml"/>
         <exclude domain="file" path="linux-sandbox/rootfs/root/.local/state/angi-bridge/"/>
         <!-- TODO: Use <include> and <exclude> to control what is backed up.
         <include .../>
@@ -14,6 +15,7 @@
     </cloud-backup>
     <device-transfer>
         <exclude domain="sharedpref" path="angi_phone_bridge.xml"/>
+        <exclude domain="sharedpref" path="angi_external_secrets.xml"/>
         <exclude domain="file" path="linux-sandbox/rootfs/root/.local/state/angi-bridge/"/>
     </device-transfer>
     <!--
