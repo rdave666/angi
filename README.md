@@ -2,7 +2,7 @@
 
 # ANGI
 
-**Current version: 0.2.7 (build 19)**
+**Current version: 0.2.8 (build 20)**
 
 ANGI is an Android AI assistant built around local Qualcomm GenieX inference, an isolated Debian/PRoot workspace, tool execution, an OpenAI-compatible local API, and an outbound phone bridge.
 
@@ -75,3 +75,10 @@ Fresh Debian installs include `util-linux` (which provides `script`). Existing i
 ## Compact console UI (0.2.7)
 
 The console prioritizes the scrollable live terminal viewport: a one-row header shows cwd, Debian readiness and tappable TTY status. Clear, Reset and short help move to the overflow menu. The command line has a context-sensitive Run/Stop icon, and the keyboard Send action submits the command and hides the keyboard to expose output. The input stays accessible above the soft keyboard.
+
+
+## Frosted Slate Console theme (0.2.8)
+
+The Debian Console now uses **ANGI Terminal First — Frosted Slate**, a restrained glass-inspired styling treatment with layered translucent blue-slate surfaces, subtle borders and soft depth. Glacier-blue actions, mint readiness/TTY indicators, and accessible off-white monospace terminal output replace the previous high-contrast cyan-on-black treatment.
+
+The styling is scoped to the Console so the existing ANGI navigation and other screens remain unchanged. No expensive live backdrop blur is applied over terminal text. The compact one-line status toolbar, expandable live terminal, keyboard-aware command input, TTY toggle and overflow maintenance menu are preserved.
