@@ -1,8 +1,8 @@
 # ANGI — Current System State
 
-**Current App Version**: `0.2.7` (build `19`)
+**Current App Version**: `0.2.8` (build `20`)
 **Current HEAD**: `main`  
-**Last Updated**: 2026-10-07
+**Last Updated**: 2026-10-08
 
 ---
 
@@ -177,6 +177,13 @@
     - Compact Run/Stop icons remain next to command input.
     - Physical keyboard and device acceptance pending.
 
+20. **Frosted Slate Console styling (v0.2.8 / build 20)**:
+    - Scoped Compose palette follows the approved ANGI Terminal First — Frosted Slate design: soft slate surfaces, muted blue and mint accents, thin translucent borders and shallow elevation.
+    - Preserves the terminal-first layout, keyboard dismissal on Send, console actions, TTY mode, output scrolling and readable monochrome terminal output.
+    - The Console only receives these changes; global navigation and unrelated tabs retain the existing ANGI theme.
+    - Avoids costly backdrop blur over frequently updating console content.
+    - Physical S23 rendering, performance and keyboard checks remain pending.
+
 ---
 
 ## Unresolved Defects
@@ -187,7 +194,7 @@
 
 ## CI & Build State
 
-- **App Version**: `v0.2.7` (Build `19`)
+- **App Version**: `v0.2.8` (Build `20`)
 - **Cloud Debug APK (`assembleDebug`)**: pending final v0.2.2 / build 14 workflow
 - **Cloud Unit Tests (`testDebugUnitTest`)**: pending final v0.2.2 / build 14 workflow
 - **Lint Check (`lintDebug`)**: pending final v0.2.2 / build 14 workflow
