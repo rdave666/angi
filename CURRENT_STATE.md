@@ -1,6 +1,6 @@
 # ANGI — Current System State
 
-**Current App Version**: `0.2.8` (build `20`)
+**Current App Version**: `0.2.9` (build `21`, feature branch; device acceptance pending)
 **Current HEAD**: `main`  
 **Last Updated**: 2026-10-08
 
@@ -184,21 +184,26 @@
     - Avoids costly backdrop blur over frequently updating console content.
     - Physical S23 rendering, performance and keyboard checks remain pending.
 
+21. **System-bar safe drawing (v0.2.9 / build 21)**:
+    - The root edge-to-edge `Scaffold` now uses `WindowInsets.safeDrawing` instead of navigation-bar-only insets after build 20 S23 screenshot showed the Console toolbar overlapping status-bar content.
+    - All tabs retain their existing themes. No changes to Internet permission, Debian installation, signing, local/remote models or phone bridge.
+    - On-device verification of top insets, IME layout and Codex remains pending. Feature branch is not released.
+
 ---
 
 ## Unresolved Defects
 
-- None.
+- S23 build 20 screenshot: Console header overlaps Android status bar. Root inset fix is on build 21 feature branch; requires physical confirmation.
+- S23 build 20 screenshot: `codex` failed to read pid-managed app-server process start time, then reported `stdin is not a terminal` on another invocation. Confirm with `codex --no-daemon`, PTY checks, and a noninteractive `codex exec` smoke test before proposing a runtime fix.
 
 ---
 
 ## CI & Build State
 
-- **App Version**: `v0.2.8` (Build `20`)
-- **Cloud Debug APK (`assembleDebug`)**: pending final v0.2.2 / build 14 workflow
-- **Cloud Unit Tests (`testDebugUnitTest`)**: pending final v0.2.2 / build 14 workflow
-- **Lint Check (`lintDebug`)**: pending final v0.2.2 / build 14 workflow
-- **Remote CI State**: Workflow configured (`.github/workflows/build-apk.yml`); remote run outcome not independently verified.
+- **App Version**: `v0.2.9` (Build `21`, feature branch; not released)
+- **Last verified main release**: `v0.2.8` (Build `20`) at `e070ed9c4abfad474eb8409dfa7429262cd36311`.
+- **Last verified main CI**: PASS, run `37816018245` (unit/Robolectric, lint, APK, stable debug signer).
+- **Build 21 branch CI**: pending check; no on-device validation claimed.
 
 ---
 
