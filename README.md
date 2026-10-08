@@ -2,7 +2,7 @@
 
 # ANGI
 
-**Current version: 0.2.8 (build 20)**
+**Current version: 0.2.9 (build 21 — device acceptance pending)**
 
 ANGI is an Android AI assistant built around local Qualcomm GenieX inference, an isolated Debian/PRoot workspace, tool execution, an OpenAI-compatible local API, and an outbound phone bridge.
 
@@ -82,3 +82,9 @@ The console prioritizes the scrollable live terminal viewport: a one-row header 
 The Debian Console now uses **ANGI Terminal First — Frosted Slate**, a restrained glass-inspired styling treatment with layered translucent blue-slate surfaces, subtle borders and soft depth. Glacier-blue actions, mint readiness/TTY indicators, and accessible off-white monospace terminal output replace the previous high-contrast cyan-on-black treatment.
 
 The styling is scoped to the Console so the existing ANGI navigation and other screens remain unchanged. No expensive live backdrop blur is applied over terminal text. The compact one-line status toolbar, expandable live terminal, keyboard-aware command input, TTY toggle and overflow maintenance menu are preserved.
+
+## Android system-bar safe area (0.2.9 / build 21)
+
+The root Compose `Scaffold` now uses `WindowInsets.safeDrawing` instead of navigation-bar-only insets. This keeps the Console toolbar and other app headers below the Android status bar in edge-to-edge mode without shrinking the terminal more than necessary. This change does not alter Debian, Codex, bridge, permissions, signing or model data.
+
+**Physical acceptance pending:** On the S23, verify the status bar does not overlap any header, command input stays above the soft keyboard, keyboard Send dismisses IME, output stays scrollable, and TTY controls remain accessible. To diagnose the currently failing Codex TUI, first run `codex --version`, `tty; test -t 0; echo tty_stdin_exit:$?` (TTY ON), then `codex --no-daemon`. For a noninteractive check use `codex exec --skip-git-repo-check "Reply with exactly ANGI_OK"`; unlike a real terminal emulator, the current line-oriented Console does not yet guarantee full-screen TUI rendering.
