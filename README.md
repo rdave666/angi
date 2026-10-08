@@ -2,7 +2,7 @@
 
 # ANGI
 
-**Current version: 0.2.6 (build 18)**
+**Current version: 0.2.7 (build 19)**
 
 ANGI is an Android AI assistant built around local Qualcomm GenieX inference, an isolated Debian/PRoot workspace, tool execution, an OpenAI-compatible local API, and an outbound phone bridge.
 
@@ -70,3 +70,8 @@ ANGI 0.2.6 / build 18 adds a real **TTY mode** to the in-app Debian Console. Whe
 This fixes tools such as Codex hanging on messages like `Reading additional input from stdin...`. Shell-state commands such as `cd` and `export` still execute directly in the persistent shell so working directory and environment changes survive between commands.
 
 Fresh Debian installs include `util-linux` (which provides `script`). Existing installations that do not already have it can run `apt update && apt install -y util-linux` once.
+
+
+## Compact console UI (0.2.7)
+
+The console prioritizes the scrollable live terminal viewport: a one-row header shows cwd, Debian readiness and tappable TTY status. Clear, Reset and short help move to the overflow menu. The command line has a context-sensitive Run/Stop icon, and the keyboard Send action submits the command and hides the keyboard to expose output. The input stays accessible above the soft keyboard.

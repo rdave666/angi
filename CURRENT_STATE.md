@@ -1,6 +1,6 @@
 # ANGI — Current System State
 
-**Current App Version**: `0.2.6` (build `18`)
+**Current App Version**: `0.2.7` (build `19`)
 **Current HEAD**: `main`  
 **Last Updated**: 2026-10-07
 
@@ -170,6 +170,13 @@
     - New Debian installs include `util-linux` so the `script` PTY helper is available by default; existing installs receive a targeted install hint if it is missing.
     - Physical S23 Codex exec acceptance remains pending.
 
+19. **Compact terminal-first UI (v0.2.7 / build 19)**:
+    - Terminal occupies remaining flexible height; status is a single header row.
+    - TTY toggles through a small status indicator, with Clear/Reset/Help in overflow menu.
+    - Keyboard Send submits command and retracts keyboard automatically.
+    - Compact Run/Stop icons remain next to command input.
+    - Physical keyboard and device acceptance pending.
+
 ---
 
 ## Unresolved Defects
@@ -180,7 +187,7 @@
 
 ## CI & Build State
 
-- **App Version**: `v0.2.6` (Build `18`)
+- **App Version**: `v0.2.7` (Build `19`)
 - **Cloud Debug APK (`assembleDebug`)**: pending final v0.2.2 / build 14 workflow
 - **Cloud Unit Tests (`testDebugUnitTest`)**: pending final v0.2.2 / build 14 workflow
 - **Lint Check (`lintDebug`)**: pending final v0.2.2 / build 14 workflow
