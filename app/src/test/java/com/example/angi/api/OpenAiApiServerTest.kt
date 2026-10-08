@@ -233,17 +233,33 @@ class OpenAiApiServerTest {
         conn1.inputStream.bufferedReader().readText()
         conn1.disconnect()
 
-        // 2. Stable alias "angi-loaded-model"
-        val conn2 = url.openConnection() as HttpURLConnection
-        conn2.requestMethod = "POST"
-        conn2.setRequestProperty("Content-Type", "application/json")
-        conn2.doOutput = true
-        conn2.outputStream.bufferedWriter().use {
-            it.write("{\"model\":\"angi-loaded-model\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}")
+        // 2. Stable alias "angi-loaded-model".
+        // The first HTTP response can reach the client just before the server
+        // releases its inference mutex. During that handoff 429 is valid; the
+        // alias itself must still be accepted once the server becomes idle.
+        var aliasStatus = -1
+        for (attempt in 0 until 30) {
+            val conn2 = url.openConnection() as HttpURLConnection
+            conn2.requestMethod = "POST"
+            conn2.setRequestProperty("Content-Type", "application/json")
+            conn2.doOutput = true
+            conn2.outputStream.bufferedWriter().use {
+                it.write("""{"model":"angi-loaded-model","messages":[{"role":"user","content":"hi"}]}""")
+            }
+
+            aliasStatus = conn2.responseCode
+            if (aliasStatus == 200) {
+                conn2.inputStream.bufferedReader().use { it.readText() }
+                conn2.disconnect()
+                break
+            }
+
+            conn2.errorStream?.close()
+            conn2.disconnect()
+            if (aliasStatus != 429) break
+            Thread.sleep(50)
         }
-        assertEquals(200, conn2.responseCode)
-        conn2.inputStream.bufferedReader().readText()
-        conn2.disconnect()
+        assertEquals("Active-model alias should succeed when inference becomes idle", 200, aliasStatus)
     }
 
     @Test
