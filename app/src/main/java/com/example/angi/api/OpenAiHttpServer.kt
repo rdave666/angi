@@ -4,6 +4,7 @@ import android.util.Log
 import com.example.angi.data.models.ModelRepository
 import com.example.angi.data.settings.AngiSettings
 import com.example.angi.data.settings.InferenceSource
+import com.example.angi.runtime.openai.OpenAiCompatibleInferenceEngine
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -252,8 +253,13 @@ class OpenAiHttpServer(
             return@withContext
         }
         body.put("model", settings.externalModelId)
-        val base = settings.externalApiBaseUrl.trim().trimEnd('/')
-            .let { if (it.endsWith("/v1")) it else "$it/v1" }
+        val base = runCatching {
+            OpenAiCompatibleInferenceEngine.normalizeBaseUrl(settings.externalApiBaseUrl)
+        }.getOrElse {
+            sendError(out, 503, "Invalid provider URL", "provider_not_configured",
+                "External provider URL in ANGI Settings is invalid.")
+            return@withContext
+        }
         // The endpoint is selected from the fixed HTTP route table, never client-supplied.
         val remote = runCatching {
             val uri = java.net.URI("$base/$endpoint")
