@@ -160,6 +160,21 @@ class SelectedModelGatewayTest {
         }
     }
 
+    @Test fun preservesGlmV4EndpointWithoutDuplicatingV1() {
+        Upstream("""{"choices":[{"message":{"content":"ok"}}]}""").use { upstream ->
+            val settings = external(upstream.port).copy(
+                externalApiBaseUrl = "http://127.0.0.1:${upstream.port}/api/paas/v4"
+            )
+            val port = start({ settings })
+            val (code, response) = request(port, "/v1/chat/completions",
+                """{"model":"angi-active-model","messages":[{"role":"user","content":"test"}]}""")
+            assertEquals(200, code)
+            assertTrue(response.contains("choices"))
+            assertTrue(upstream.captured.get().startsWith("POST /api/paas/v4/chat/completions"))
+            assertFalse(upstream.captured.get().contains("/v4/v1/"))
+        }
+    }
+
     @Test fun rejectsUnknownModelsAndUnconfiguredProviders() {
         val port = start({ AngiSettings(inferenceSource = InferenceSource.EXTERNAL) })
         assertEquals(503, request(port, "/v1/chat/completions", """{"model":"angi-active-model"}""").first)

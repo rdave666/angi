@@ -2,7 +2,19 @@
 
 # ANGI
 
-**Current version: 0.2.9 (build 21)**
+**Current version: 0.2.10 (build 22)**
+
+## Debian persistence and external v4 provider fix (0.2.10)
+
+- **Non-destructive installs.** Existing Debian installations survive duplicate Install actions. Fresh installations use a separate staging directory, and are activated only after PRoot and package checks succeed. Failed attempts clean staging only, never the installed Debian filesystem or shared `/workspace`.
+- **Marker recovery.** When an old installation has lost its single `install` marker but retains Debian release metadata, bash, Python and dpkg files, ANGI detects it as installed without downloading again.
+- **Safer Diagnostics.** The destructive Reinstall shortcut is replaced by Refresh; Delete now requires confirmation. Deletion removes the Debian rootfs, /root and installed agent state, not the separately mounted /workspace.
+- **GLM-compatible external URLs.** Base URLs with versioned paths such as `https://open.bigmodel.cn/api/paas/v4` are not changed to `/v4/v1`. Android external chat and the Debian gateway use the same URL normalizer.
+- **Console stability.** Command-completion markers now travel on stdout, preventing stale stdout from appearing under the next command; status-bar padding keeps system icons clear of the Console header.
+
+**Physical-device acceptance remains necessary.** Files already removed by an older build's destructive reinstall, by uninstalling the APK or by clearing Android app data cannot be recovered by this update. Stable development signing, internet permissions, existing model imports and the shared PRoot layout are preserved.
+
+
 
 ## Use the ANGI-selected model from Debian (0.2.9)
 

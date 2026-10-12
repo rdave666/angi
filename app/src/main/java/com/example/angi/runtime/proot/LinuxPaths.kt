@@ -2,6 +2,8 @@ package com.example.angi.runtime.proot
 
 import android.content.Context
 import java.io.File
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 
 /**
  * Storage layout and paths for PRoot-based Linux user space.
@@ -34,17 +36,14 @@ class LinuxPaths(
     val workspaceDir: File get() = File(root, "workspace")
 
     fun ensureLayout() {
-        listOf(root, rootfsDir, tmpDir, workspaceDir).forEach { it.mkdirs() }
+        // Creating an empty active rootfs here obscures an interrupted/never-started install.
+        // Only a successfully staged installation is promoted into rootfsDir.
+        listOf(root, tmpDir, workspaceDir).forEach { it.mkdirs() }
     }
 
-    fun ensureMountPoints() {
-        File(rootfsDir, "root").mkdirs()
-        File(rootfsDir, "tmp").mkdirs()
-        File(rootfsDir, "workspace").mkdirs()
-        File(rootfsDir, "dev").mkdirs()
-        File(rootfsDir, "proc").mkdirs()
-        File(rootfsDir, "sys").mkdirs()
-        File(rootfsDir, "etc").mkdirs()
+    fun ensureMountPoints(targetRootfs: File = rootfsDir) {
+        listOf("root", "tmp", "workspace", "dev", "proc", "sys", "etc")
+            .forEach { File(targetRootfs, it).mkdirs() }
     }
 
     fun copyLibtalloc() {
@@ -55,16 +54,36 @@ class LinuxPaths(
         }
     }
 
+    /**
+     * A previous build could lose the single 'install' marker while the rootfs survived.
+     * Recovery requires Debian + installed base packages, not simply an empty directory.
+     * Never remove or overwrite files because the marker is missing.
+     */
+    fun hasRecoverableRootfs(): Boolean =
+        File(rootfsDir, "etc/debian_version").isFile &&
+            (File(rootfsDir, "usr/bin/bash").isFile || File(rootfsDir, "bin/bash").isFile) &&
+            File(rootfsDir, "usr/bin/python3").isFile &&
+            File(rootfsDir, "var/lib/dpkg/status").isFile
+
+    fun hasRootfsData(): Boolean = rootfsDir.listFiles()?.isNotEmpty() == true
+
     fun isInstalled(): Boolean {
         if (!rootfsDir.isDirectory) return false
-        if (!markerFile.isFile) return false
-        val content = runCatching { markerFile.readText() }.getOrNull() ?: return false
-        return content.contains("INSTALLED")
+        val markerPresent = markerFile.isFile &&
+            runCatching { markerFile.useLines { lines -> lines.any { it == "STATUS=INSTALLED" } } }
+                .getOrDefault(false)
+        return markerPresent || hasRecoverableRootfs()
     }
 
     fun writeMarker(distroId: String) {
         root.mkdirs()
-        markerFile.writeText("STATUS=INSTALLED\nDISTRO=$distroId\nTIMESTAMP=${System.currentTimeMillis()}\n")
+        val temp = File.createTempFile(".install-", ".tmp", root)
+        try {
+            temp.writeText("STATUS=INSTALLED\nDISTRO=$distroId\nTIMESTAMP=${System.currentTimeMillis()}\n")
+            Files.move(temp.toPath(), markerFile.toPath(), StandardCopyOption.REPLACE_EXISTING)
+        } finally {
+            temp.delete()
+        }
     }
 
     fun deleteInstall() {

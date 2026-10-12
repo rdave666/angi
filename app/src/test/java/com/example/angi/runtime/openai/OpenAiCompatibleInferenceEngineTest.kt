@@ -27,6 +27,20 @@ class OpenAiCompatibleInferenceEngineTest {
     }
 
     @Test
+    fun retainsProviderVersionPathsWithoutAppendingV1() {
+        assertEquals(
+            "https://open.bigmodel.cn/api/paas/v4",
+            OpenAiCompatibleInferenceEngine.normalizeBaseUrl(
+                "https://open.bigmodel.cn/api/paas/v4/"
+            )
+        )
+        assertEquals(
+            "https://example.com/v4",
+            OpenAiCompatibleInferenceEngine.normalizeBaseUrl("https://example.com/v4")
+        )
+    }
+
+    @Test
     fun parsesOpenAiModelList() {
         val body = """
             {
