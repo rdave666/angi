@@ -551,7 +551,7 @@ fun SettingsScreen(
                         }
 
                         Text(
-                            text = "Expose currently loaded on-device model over standard OpenAI endpoints (/v1/chat/completions, /v1/models, /health).",
+                            text = "Expose the model selected in Settings (local GenieX or external provider) to Debian via an authenticated OpenAI-compatible API.",
                             fontSize = 12.sp,
                             color = AngiTextSecondary,
                             modifier = Modifier.padding(top = 4.dp, bottom = 12.dp)
@@ -690,7 +690,7 @@ fun SettingsScreen(
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text("API Key (Required for LAN mode)", fontSize = 11.sp, color = AngiTextSecondary)
+                                Text("API Key (required for all clients)", fontSize = 11.sp, color = AngiTextSecondary)
                                 IconButton(
                                     onClick = { viewModel.regenerateApiKey(context) },
                                     modifier = Modifier.size(24.dp).testTag("btn_regenerate_api_key")
@@ -731,6 +731,20 @@ fun SettingsScreen(
                             }
                         }
 
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Text(
+                            text = "Debian model access: . /root/.config/angi/model-gateway.sh",
+                            fontSize = 11.sp,
+                            fontFamily = FontFamily.Monospace,
+                            color = AngiTextSecondary,
+                            modifier = Modifier.testTag("api_server_debian_gateway_hint")
+                        )
+                        Text(
+                            text = "Model ID: angi-active-model · External provider credentials stay in Android. Codex requires a Responses-compatible external provider.",
+                            fontSize = 11.sp,
+                            color = AngiTextSecondary
+                        )
+
                         Spacer(modifier = Modifier.height(12.dp))
 
                         // Server Status, Loaded model & Compute unit
@@ -770,11 +784,16 @@ fun SettingsScreen(
                         ) {
                             Text("Loaded model", fontSize = 12.sp, color = AngiTextSecondary)
                             Text(
-                                text = if (runtimeInfo.isModelLoaded) (runtimeInfo.loadedModelId ?: "Active Model") else "No model loaded",
+                                text = if (settings.inferenceSource.name == "EXTERNAL") {
+                                    settings.externalModelId.ifBlank { "No external model selected" }
+                                } else if (runtimeInfo.isModelLoaded) {
+                                    runtimeInfo.loadedModelId ?: "Active Model"
+                                } else "No model loaded",
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Medium,
                                 fontFamily = FontFamily.Monospace,
-                                color = if (runtimeInfo.isModelLoaded) AngiPrimary else AngiTextTertiary,
+                                color = if (settings.inferenceSource.name == "EXTERNAL" &&
+                                    settings.externalModelId.isNotBlank() || runtimeInfo.isModelLoaded) AngiPrimary else AngiTextTertiary,
                                 modifier = Modifier.testTag("api_server_model_text")
                             )
                         }
@@ -787,7 +806,8 @@ fun SettingsScreen(
                         ) {
                             Text("Compute unit", fontSize = 12.sp, color = AngiTextSecondary)
                             Text(
-                                text = if (runtimeInfo.isModelLoaded) runtimeInfo.computeUnit else "NONE",
+                                text = if (settings.inferenceSource.name == "EXTERNAL") "REMOTE"
+                                    else if (runtimeInfo.isModelLoaded) runtimeInfo.computeUnit else "NONE",
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Medium,
                                 fontFamily = FontFamily.Monospace,
