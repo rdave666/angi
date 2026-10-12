@@ -16,7 +16,7 @@ class GatewayGuestConfigTest {
             assertTrue(text.contains("http://127.0.0.1:18080/v1"))
             assertTrue(text.contains("angi-active-model"))
             assertTrue(text.contains("guest-token-"))
-            assertTrue(text.contains("'\\\"'\\\"'"))
+            assertTrue(text.contains("'\"'\"'"))
             assertFalse(text.contains("provider-secret"))
             assertFalse(script.canExecute())
             GatewayGuestConfig.revoke(rootfs)
