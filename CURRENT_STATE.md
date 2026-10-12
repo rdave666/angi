@@ -1,9 +1,19 @@
 # ANGI — Current System State
 
-**Current App Version**: `0.2.9` (build `21`)
-**Current branch**: `main` — selected-model gateway merged via PR #10 (2026-10-12)  
+**Current App Version**: `0.2.10` (build `22`)
+**Current branch**: `fix/debian-rootfs-persistence` — pending CI verification and merge  
 **Last Updated**: 2026-10-12
 
+
+## Build 22 — Rootfs persistence + GLM base URL repair
+
+- Code defect confirmed: `LinuxInstaller.installDebian()` previously deleted the live rootfs at the beginning of each install and again on any failure. This destroyed packages, configuration and home files even if network download failed.
+- Fixed: live Debian is never deleted by an installation attempt; install is staged separately, smoke-tested and then activated, with an installation-wide mutex and preserved /workspace.
+- Fixed: missing-marker recovery for completed Debian roots, atomic marker write, no automatic creation of an empty rootfs by `ensureLayout`, safer Diagnostics buttons and confirmation before explicit rootfs deletion.
+- Fixed: external provider `/api/paas/v4` was incorrectly rewritten to `/api/paas/v4/v1` both by Android external chat and its local gateway. Shared normalizer preserves versioned URLs.
+- Fixed: Console command output could trail the command-completion sentinel on stderr and surface under the next command. Completion marker now follows stdout, and Console respects Android status-bar padding.
+- Device tests **not yet performed**: S23 upgrade persistence, GLM chat, real PTY, Codex and outbound phone bridge. Files erased by prior versions or app uninstall are not recoverable.
+- CI release: pending. Do not mark verified until the exact branch build is green and main APK is published.
 
 ## Current engineering status (supersedes historical verification claims below)
 - **0.2.9 build 21 (development):** Android-selected local/remote model gateway, external Chat Completions SSE/tool passthrough, external Responses passthrough, and private Debian bootstrap file.
