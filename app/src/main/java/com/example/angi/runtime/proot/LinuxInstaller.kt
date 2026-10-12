@@ -48,87 +48,126 @@ class LinuxInstaller(
     private val archiveExtractor: ((archive: File, targetDir: File) -> Unit)? = null,
     private val commandExecutor: ((launcher: ProotLauncher, command: String, timeoutSeconds: Long) -> ProotResult)? = null
 ) {
-    suspend fun installDebian(onStep: (InstallStep) -> Unit): Result<InstallResult> = withContext(Dispatchers.IO) {
-        runCatching {
-            paths.ensureLayout()
-            val proot = File(paths.prootPath)
-            check(proot.exists()) {
-                "proot binary not found at ${paths.prootPath}. nativeLibraryDir contents: " +
-                        (File(paths.nativeLibDir).listFiles()?.map { it.name } ?: "empty")
-            }
-            paths.copyLibtalloc()
-            paths.deleteInstall()
-            paths.ensureLayout()
+    suspend fun installDebian(onStep: (InstallStep) -> Unit): Result<InstallResult> =
+        withContext(Dispatchers.IO) {
+            // Serialise the entire filesystem transaction, not only apt. A second Install
+            // action must never race against extraction or activation of a first install.
+            installLock.withLock {
+                runCatching {
+                    paths.ensureLayout()
+                    val proot = File(paths.prootPath)
+                    check(proot.exists()) {
+                        "PRoot binary missing: ${paths.prootPath}. Existing Debian files were not touched."
+                    }
+                    paths.copyLibtalloc()
 
-            onStep(InstallStep.ResolveImage)
-            val urls = urlProvider()
-            check(urls.isNotEmpty()) { "No download URLs available for Debian" }
-            val downloadUrl = urls.first()
+                    // Idempotent: normal app upgrades/restarts, refreshes or duplicate taps
+                    // must NEVER reinstall or delete Debian and its user-owned /root.
+                    if (paths.isInstalled()) {
+                        onStep(InstallStep.Complete)
+                        return@runCatching InstallResult(0L, "", "")
+                    }
+                    // Previous builds may have left an unmarked, partially installed rootfs.
+                    // Do not destroy it: preserve keys, agent config and packages for repair.
+                    check(!paths.hasRootfsData()) {
+                        "An existing Debian filesystem was detected without a valid install marker. " +
+                            "It has been preserved. Do not reinstall or clear ANGI data; inspect Diagnostics."
+                    }
 
-            val archive = File(paths.root, DebianDistroSpec.ARCHIVE_NAME)
-            val (archiveSize, computedSha256) = try {
-                onStep(InstallStep.Download(0f, 0L, null))
-                val stats = downloadFile(downloadUrl, archive) { fraction, downloaded, total ->
-                    onStep(InstallStep.Download(fraction, downloaded, total))
+                    // Only this installer owns the staging area. Never extract directly into
+                    // the live rootfs; interruption or download errors cannot corrupt it.
+                    val staging = File(paths.root, "rootfs-install-staging")
+                    if (staging.exists()) {
+                        check(staging.deleteRecursively()) { "Cannot clear abandoned install staging area" }
+                    }
+                    check(staging.mkdirs()) { "Cannot create install staging area" }
+                    try {
+                        onStep(InstallStep.ResolveImage)
+                        val urls = urlProvider()
+                        check(urls.isNotEmpty()) { "No download URLs available for Debian" }
+                        val downloadUrl = urls.first()
+
+                        val archive = File(paths.root, DebianDistroSpec.ARCHIVE_NAME)
+                        val (archiveSize, computedSha256) = try {
+                            onStep(InstallStep.Download(0f, 0L, null))
+                            val stats = downloadFile(downloadUrl, archive) { fraction, downloaded, total ->
+                                onStep(InstallStep.Download(fraction, downloaded, total))
+                            }
+                            currentCoroutineContext().ensureActive()
+                            onStep(InstallStep.Extract)
+                            if (archiveExtractor != null) {
+                                archiveExtractor.invoke(archive, staging)
+                            } else {
+                                extractor.extractTarXz(archive, staging)
+                            }
+                            stats
+                        } finally {
+                            archive.delete()
+                        }
+
+                        currentCoroutineContext().ensureActive()
+                        onStep(InstallStep.Configure)
+                        DebianDistroSpec.configure(staging)
+                        paths.ensureMountPoints(staging)
+
+                        val launcher = ProotLauncher(
+                            prootPath = paths.prootPath,
+                            libDir = paths.libDir,
+                            rootfsPath = staging.absolutePath,
+                            tmpPath = paths.tmpDir.absolutePath,
+                            binds = listOf(paths.workspaceDir.absolutePath to "/workspace"),
+                            extraArgs = DebianDistroSpec.prootArgs,
+                            env = DebianDistroSpec.env
+                        )
+                        currentCoroutineContext().ensureActive()
+                        onStep(InstallStep.ProotTest)
+                        val testResult = executeCommand(
+                            launcher, "/bin/sh -c 'echo ANGI_PROOT_OK'", timeoutSeconds = 30L
+                        )
+                        check(testResult.success && testResult.stdout.contains("ANGI_PROOT_OK")) {
+                            "PRoot smoke test failed: ${testResult.failureDetail()}"
+                        }
+
+                        currentCoroutineContext().ensureActive()
+                        packageLock.withLock {
+                            onStep(InstallStep.AptUpdate)
+                            refreshPackageIndex(launcher)
+                            currentCoroutineContext().ensureActive()
+                            installBasePackages(launcher, onStep)
+                        }
+
+                        currentCoroutineContext().ensureActive()
+                        onStep(InstallStep.Finalize)
+                        // Empty legacy rootfs directories are safe to remove. Never replace
+                        // an existing nonempty directory, even if it appeared during setup.
+                        if (paths.rootfsDir.isDirectory) {
+                            check(!paths.hasRootfsData()) {
+                                "Another process created Debian data during installation; preserved."
+                            }
+                            check(paths.rootfsDir.delete()) { "Cannot remove empty rootfs directory" }
+                        }
+                        check(!paths.rootfsDir.exists()) {
+                            "Existing Debian filesystem must not be overwritten"
+                        }
+                        check(staging.renameTo(paths.rootfsDir)) {
+                            "Could not activate validated Debian installation"
+                        }
+                        // A crash after the rename but before this marker write is recoverable
+                        // via LinuxPaths.hasRecoverableRootfs(), not grounds for deletion.
+                        paths.writeMarker(DebianDistroSpec.ID)
+                        onStep(InstallStep.Complete)
+                        InstallResult(
+                            archiveSizeBytes = archiveSize,
+                            sha256 = computedSha256,
+                            downloadUrl = downloadUrl
+                        )
+                    } finally {
+                        // ONLY cleanup installer-owned temporary files; never live rootfs.
+                        if (staging.exists()) staging.deleteRecursively()
+                    }
                 }
-                currentCoroutineContext().ensureActive()
-
-                onStep(InstallStep.Extract)
-                if (archiveExtractor != null) {
-                    archiveExtractor.invoke(archive, paths.rootfsDir)
-                } else {
-                    extractor.extractTarXz(archive, paths.rootfsDir)
-                }
-                stats
-            } finally {
-                archive.delete()
             }
-
-            currentCoroutineContext().ensureActive()
-            onStep(InstallStep.Configure)
-            DebianDistroSpec.configure(paths.rootfsDir)
-            paths.ensureMountPoints()
-
-            val launcher = ProotLauncher(
-                prootPath = paths.prootPath,
-                libDir = paths.libDir,
-                rootfsPath = paths.rootfsDir.absolutePath,
-                tmpPath = paths.tmpDir.absolutePath,
-                binds = listOf(paths.workspaceDir.absolutePath to "/workspace"),
-                extraArgs = DebianDistroSpec.prootArgs,
-                env = DebianDistroSpec.env
-            )
-
-            currentCoroutineContext().ensureActive()
-            onStep(InstallStep.ProotTest)
-            val testResult = executeCommand(launcher, "/bin/sh -c 'echo ANGI_PROOT_OK'", timeoutSeconds = 30L)
-            check(testResult.success && testResult.stdout.contains("ANGI_PROOT_OK")) {
-                "PRoot smoke test failed: ${testResult.failureDetail()}"
-            }
-
-            currentCoroutineContext().ensureActive()
-            packageLock.withLock {
-                onStep(InstallStep.AptUpdate)
-                refreshPackageIndex(launcher)
-                currentCoroutineContext().ensureActive()
-                installBasePackages(launcher, onStep)
-            }
-
-            currentCoroutineContext().ensureActive()
-            onStep(InstallStep.Finalize)
-            paths.writeMarker(DebianDistroSpec.ID)
-
-            onStep(InstallStep.Complete)
-
-            InstallResult(
-                archiveSizeBytes = archiveSize,
-                sha256 = computedSha256,
-                downloadUrl = downloadUrl
-            )
-        }.onFailure {
-            paths.deleteInstall()
         }
-    }
 
     private fun executeCommand(launcher: ProotLauncher, command: String, timeoutSeconds: Long): ProotResult {
         return commandExecutor?.invoke(launcher, command, timeoutSeconds)
@@ -186,5 +225,6 @@ class LinuxInstaller(
 
     companion object {
         val packageLock = Mutex()
+        private val installLock = Mutex()
     }
 }
