@@ -46,6 +46,7 @@ class OpenAiHttpServer(
     val host: String = "127.0.0.1",
     val port: Int = 8080,
     val apiKey: String = "",
+    val guestApiKey: String = "",
     val requireAuth: Boolean = false,
     private val inferenceEngine: InferenceEngine,
     private val modelRepository: ModelRepository? = null,
@@ -145,7 +146,9 @@ class OpenAiHttpServer(
             if (needsAuth) {
                 val authHeader = request.headers["authorization"] ?: ""
                 val expected = "Bearer $apiKey"
-                if (authHeader.isBlank() || authHeader != expected) {
+                val localGuestAllowed = isLoopback && guestApiKey.isNotBlank() &&
+                    authHeader == "Bearer $guestApiKey"
+                if (authHeader.isBlank() || (authHeader != expected && !localGuestAllowed)) {
                     sendError(outputStream, 401, "Invalid API Key", "invalid_api_key", "Bearer API key required")
                     socket.close()
                     return@withContext
