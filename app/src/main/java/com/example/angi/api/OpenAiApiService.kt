@@ -152,6 +152,9 @@ class OpenAiApiService : Service() {
     }
 
     private fun stopServer() {
+        runCatching {
+            GatewayGuestConfig.revoke(AngiApp.instance.linuxSandboxManager.paths.rootfsDir)
+        }
         server?.stop()
         server = null
         val current = _serverState.value
