@@ -96,6 +96,7 @@ class DiagnosticsViewModel(
     }
 
     fun refreshDiagnostics() {
+        linuxSandboxManager.refreshEnvironments()
         viewModelScope.launch {
             val context = AngiApp.instance.applicationContext
             val actManager = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
