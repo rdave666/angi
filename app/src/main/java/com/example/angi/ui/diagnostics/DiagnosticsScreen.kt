@@ -31,6 +31,8 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -48,6 +50,9 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -78,6 +83,7 @@ fun DiagnosticsScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
+    var confirmDeleteDebian by remember { mutableStateOf(false) }
 
     val safFolderLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocumentTree()
@@ -96,6 +102,23 @@ fun DiagnosticsScreen(
                 displayName = folderName.ifEmpty { "Granted Folder" }
             )
         }
+    }
+
+    if (confirmDeleteDebian) {
+        AlertDialog(
+            onDismissRequest = { confirmDeleteDebian = false },
+            title = { Text("Delete Debian installation?") },
+            text = { Text("This permanently removes the Debian rootfs, installed packages, /root, agent credentials and settings. Your separate /workspace is preserved. This cannot be undone.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmDeleteDebian = false
+                    viewModel.deleteEnvironment()
+                }) { Text("Delete Debian") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmDeleteDebian = false }) { Text("Cancel") }
+            }
+        )
     }
 
     Scaffold(
@@ -306,7 +329,7 @@ fun DiagnosticsScreen(
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
-                                    text = if (status == LinuxEnvironmentStatus.FAILED) "Reinstall Debian" else "Install Debian",
+                                    text = if (status == LinuxEnvironmentStatus.FAILED) "Retry setup" else "Install Debian",
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.SemiBold
                                 )
@@ -330,19 +353,17 @@ fun DiagnosticsScreen(
                                 }
 
                                 OutlinedButton(
-                                    onClick = { viewModel.installDebian() },
-                                    modifier = Modifier.weight(1f).testTag("btn_reinstall_debian"),
+                                    onClick = { viewModel.refreshDiagnostics() },
+                                    modifier = Modifier.weight(1f).testTag("btn_refresh_debian"),
                                     enabled = !isInstalling && !uiState.isEnvironmentActionRunning
                                 ) {
                                     Icon(imageVector = Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(14.dp), tint = AngiSecondary)
                                     Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Reinstall", fontSize = 11.sp, color = AngiSecondary)
+                                    Text("Refresh", fontSize = 11.sp, color = AngiSecondary)
                                 }
 
                                 OutlinedButton(
-                                    onClick = {
-                                        def?.let { viewModel.deleteEnvironment(it.id) }
-                                    },
+                                    onClick = { confirmDeleteDebian = true },
                                     modifier = Modifier.weight(1f).testTag("btn_delete_env"),
                                     enabled = !isInstalling && !uiState.isEnvironmentActionRunning
                                 ) {
