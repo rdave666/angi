@@ -437,7 +437,9 @@ class OpenAiCompatibleInferenceEngine(
             require(uri.query == null && uri.fragment == null) { "Base URL must not contain query parameters or fragments" }
 
             val existingPath = uri.path.orEmpty().trimEnd('/')
-            val normalizedPath = if (existingPath.endsWith("/v1")) {
+            // Some providers expose versioned paths such as /api/paas/v4 (GLM).
+            // Never turn /v4 into /v4/v1; only append /v1 to unversioned paths.
+            val normalizedPath = if (Regex("(^|.*/)v[0-9]+$", RegexOption.IGNORE_CASE).containsMatchIn(existingPath)) {
                 existingPath
             } else {
                 "$existingPath/v1"
