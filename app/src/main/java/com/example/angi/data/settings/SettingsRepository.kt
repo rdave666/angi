@@ -38,6 +38,8 @@ data class AngiSettings(
     val apiServerPort: Int = 8080,
     val apiServerBindLan: Boolean = false,
     val apiServerApiKey: String = "",
+    // Separate loopback-only token for Debian coding agents; never the external provider key.
+    val debianGatewayKey: String = "",
     // External OpenAI-compatible provider
     val inferenceSource: InferenceSource = InferenceSource.LOCAL,
     val externalApiBaseUrl: String = "",
@@ -87,6 +89,12 @@ class SettingsRepository(
             apiServerApiKey = prefs.getString("api_server_key", null) ?: run {
                 val generated = "sk-angi-" + java.util.UUID.randomUUID().toString().replace("-", "").take(16)
                 prefs.edit().putString("api_server_key", generated).apply()
+                generated
+            },
+            debianGatewayKey = secretPrefs.getString("debian_gateway_key", null) ?: run {
+                val generated = "sk-angi-guest-" + java.util.UUID.randomUUID().toString().replace("-", "") +
+                    java.util.UUID.randomUUID().toString().replace("-", "")
+                secretPrefs.edit().putString("debian_gateway_key", generated).commit()
                 generated
             },
             inferenceSource = runCatching {
