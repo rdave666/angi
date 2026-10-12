@@ -67,7 +67,8 @@ class OpenAiApiService : Service() {
         val host = if (settings.apiServerBindLan) "0.0.0.0" else "127.0.0.1"
         val port = settings.apiServerPort
         val apiKey = settings.apiServerApiKey
-        val requireAuth = settings.apiServerBindLan
+        // Android loopback is shared with other apps; require credentials there too.
+        val requireAuth = true
 
         val lanIp = if (settings.apiServerBindLan) NetworkUtils.getLocalIpv4Address() else null
         val notifText = when {
@@ -94,12 +95,22 @@ class OpenAiApiService : Service() {
                 host = host,
                 port = port,
                 apiKey = apiKey,
+                guestApiKey = settings.debianGatewayKey,
                 requireAuth = requireAuth,
                 inferenceEngine = AngiApp.instance.inferenceEngine,
-                modelRepository = AngiApp.instance.modelRepository
+                modelRepository = AngiApp.instance.modelRepository,
+                settingsProvider = { settingsRepo.settings.value }
             )
             val actualPort = newServer.start()
             server = newServer
+            // Reuses the existing Debian rootfs; never installs models or a second sandbox.
+            runCatching {
+                GatewayGuestConfig.provision(
+                    AngiApp.instance.linuxSandboxManager.paths.rootfsDir,
+                    actualPort,
+                    settings.debianGatewayKey
+                )
+            }.onFailure { Log.w("OpenAiApiService", "Could not provision Debian gateway config", it) }
 
             val clientEndpoint = when {
                 !settings.apiServerBindLan -> "http://127.0.0.1:$actualPort/v1"
@@ -141,6 +152,9 @@ class OpenAiApiService : Service() {
     }
 
     private fun stopServer() {
+        runCatching {
+            GatewayGuestConfig.revoke(AngiApp.instance.linuxSandboxManager.paths.rootfsDir)
+        }
         server?.stop()
         server = null
         val current = _serverState.value

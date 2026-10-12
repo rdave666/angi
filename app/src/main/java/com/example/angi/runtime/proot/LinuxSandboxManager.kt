@@ -139,6 +139,19 @@ class LinuxSandboxManager(
             updateStatus(LinuxEnvironmentStatus.FAILED, err)
         }
         refreshEnvironments()
+        if (result.isSuccess) {
+            // Debian may have been installed *after* the Android API server was enabled.
+            // Provision the same shared rootfs once it is ready; never create another one.
+            runCatching {
+                val apiState = com.example.angi.api.OpenAiApiService.serverState.value
+                if (apiState.isRunning) {
+                    val settings = com.example.AngiApp.instance.settingsRepository.settings.value
+                    com.example.angi.api.GatewayGuestConfig.provision(
+                        paths.rootfsDir, apiState.port, settings.debianGatewayKey
+                    )
+                }
+            }
+        }
         return if (result.isSuccess) Result.success(Unit) else Result.failure(result.exceptionOrNull() ?: Exception("Installation failed"))
     }
 

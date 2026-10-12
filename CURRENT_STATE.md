@@ -1,8 +1,17 @@
 # ANGI — Current System State
 
-**Current App Version**: `0.2.8` (build `20`)
-**Current HEAD**: `main`  
-**Last Updated**: 2026-10-08
+**Current App Version**: `0.2.9` (build `21`)
+**Current HEAD**: `feat/debian-selected-model-gateway` (pending CI/device acceptance)  
+**Last Updated**: 2026-10-12
+
+
+## Current engineering status (supersedes historical verification claims below)
+- **0.2.9 build 21 (development):** Android-selected local/remote model gateway, external Chat Completions SSE/tool passthrough, external Responses passthrough, and private Debian bootstrap file.
+- **Physical S23 test: NOT VERIFIED.** Unit tests and CI passing do not prove device functionality.
+- **Known device failures reported:** persistent Debian Console is not working; outbound phone bridge is not working; compact Console header needs correction.
+- **Codex:** neither CLI installation nor authentication is verified; local GenieX does not implement Responses.
+- No Android provider credentials are copied to Debian; it receives only a loopback-scoped gateway key.
+- No PRoot/rootfs replacement or permission removal.
 
 ---
 
@@ -188,7 +197,10 @@
 
 ## Unresolved Defects
 
-- None.
+- Persistent Debian Console: nonfunctional on S23 (reported); root cause and physical retest pending.
+- Outbound HTTPS phone bridge: nonfunctional on S23 (reported); relay/device acceptance pending.
+- Compact Console status header: user reports needs fixing.
+- Codex installation/authentication and interactive PTY: not completed.
 
 ---
 

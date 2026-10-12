@@ -22,8 +22,8 @@ android {
     applicationId = "com.aistudio.angi.wkvq"
     minSdk = 27
     targetSdk = 36
-    versionCode = 20
-    versionName = "0.2.8"
+    versionCode = 21
+    versionName = "0.2.9"
 
     ndk {
       abiFilters.clear()

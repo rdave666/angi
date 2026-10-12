@@ -131,11 +131,12 @@ class OpenAiApiServerTest {
         val json = JSONObject(body)
         assertEquals("list", json.getString("object"))
         val data = json.getJSONArray("data")
-        assertEquals(2, data.length())
+        assertEquals(3, data.length())
 
         val ids = listOf(data.getJSONObject(0).getString("id"), data.getJSONObject(1).getString("id"))
         assertTrue("Must include active model ID", ids.contains("qwen_0_6b"))
         assertTrue("Must include stable alias angi-loaded-model", ids.contains("angi-loaded-model"))
+        assertEquals("angi-active-model", data.getJSONObject(2).getString("id"))
     }
 
     @Test

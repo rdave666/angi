@@ -2,6 +2,12 @@ package com.example.angi.api
 
 import android.util.Log
 import com.example.angi.data.models.ModelRepository
+import com.example.angi.data.settings.AngiSettings
+import com.example.angi.data.settings.InferenceSource
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import com.example.angi.domain.conversation.Message
 import com.example.angi.domain.inference.GenerationEvent
 import com.example.angi.domain.inference.GenerationRequest
@@ -28,6 +34,8 @@ import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
 import java.net.SocketException
+import java.net.SocketTimeoutException
+import java.util.concurrent.TimeUnit
 import java.util.UUID
 
 /**
@@ -38,15 +46,36 @@ class OpenAiHttpServer(
     val host: String = "127.0.0.1",
     val port: Int = 8080,
     val apiKey: String = "",
+    val guestApiKey: String = "",
     val requireAuth: Boolean = false,
     private val inferenceEngine: InferenceEngine,
-    private val modelRepository: ModelRepository? = null
+    private val modelRepository: ModelRepository? = null,
+    // Read current Android settings per request. Do not pin a model/provider when the service starts.
+    private val settingsProvider: (() -> AngiSettings)? = null
 ) {
     private val tag = "OpenAiHttpServer"
     private var serverSocket: ServerSocket? = null
     private var serverJob: Job? = null
     private val serverScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val inferenceLock = Mutex()
+    private val upstreamClient = OkHttpClient.Builder()
+        .connectTimeout(20, TimeUnit.SECONDS)
+        .readTimeout(0, TimeUnit.MILLISECONDS) // SSE can legitimately be long-lived.
+        .build()
+
+    private fun selectedExternal(): AngiSettings? =
+        settingsProvider?.invoke()?.takeIf { it.inferenceSource == InferenceSource.EXTERNAL }
+
+    private fun externalReady(settings: AngiSettings): Boolean =
+        settings.externalApiBaseUrl.isNotBlank() &&
+            settings.externalApiKey.isNotBlank() &&
+            settings.externalModelId.isNotBlank()
+
+    private fun acceptsModel(requested: String, configured: String): Boolean =
+        requested.isEmpty() || requested.equals(configured, true) ||
+            requested.equals("angi-active-model", true) ||
+            requested.equals("angi-loaded-model", true)
+
 
     @Volatile
     var isRunning: Boolean = false
@@ -117,7 +146,9 @@ class OpenAiHttpServer(
             if (needsAuth) {
                 val authHeader = request.headers["authorization"] ?: ""
                 val expected = "Bearer $apiKey"
-                if (authHeader.isBlank() || authHeader != expected) {
+                val localGuestAllowed = isLoopback && guestApiKey.isNotBlank() &&
+                    authHeader == "Bearer $guestApiKey"
+                if (authHeader.isBlank() || (authHeader != expected && !localGuestAllowed)) {
                     sendError(outputStream, 401, "Invalid API Key", "invalid_api_key", "Bearer API key required")
                     socket.close()
                     return@withContext
@@ -125,21 +156,31 @@ class OpenAiHttpServer(
             }
 
             val path = request.path.split("?").first()
+            val external = selectedExternal()
             when {
                 request.method == "OPTIONS" -> {
                     sendCorsResponse(outputStream)
                 }
                 request.method == "GET" && path == "/health" -> {
-                    handleHealth(outputStream)
+                    if (external != null) handleExternalHealth(external, outputStream)
+                    else handleHealth(outputStream)
                 }
                 request.method == "GET" && (path == "/v1/models" || path == "/models") -> {
-                    handleModels(outputStream)
+                    if (external != null) handleExternalModels(external, outputStream)
+                    else handleModels(outputStream)
                 }
                 request.method == "POST" && (path == "/v1/chat/completions" || path == "/chat/completions") -> {
-                    handleChatCompletions(request, socket, outputStream)
+                    if (external != null) forwardExternal(external, request, "chat/completions", socket, outputStream)
+                    else handleChatCompletions(request, socket, outputStream)
                 }
                 request.method == "POST" && (path == "/v1/completions" || path == "/completions") -> {
-                    handleCompletions(request, socket, outputStream)
+                    if (external != null) forwardExternal(external, request, "completions", socket, outputStream)
+                    else handleCompletions(request, socket, outputStream)
+                }
+                request.method == "POST" && (path == "/v1/responses" || path == "/responses") -> {
+                    if (external != null) forwardExternal(external, request, "responses", socket, outputStream)
+                    else sendError(outputStream, 501, "Not Implemented", "unsupported_endpoint",
+                        "Local GenieX does not implement Responses API; use an external Responses-compatible provider.")
                 }
                 else -> {
                     sendError(outputStream, 404, "Not Found", "not_found", "The requested endpoint does not exist: $path")
@@ -153,6 +194,122 @@ class OpenAiHttpServer(
             try {
                 socket.close()
             } catch (_: Exception) {}
+        }
+    }
+
+
+    private fun handleExternalHealth(settings: AngiSettings, out: OutputStream) {
+        val ready = externalReady(settings)
+        sendJsonResponse(out, 200, JSONObject().apply {
+            put("status", "ok")
+            put("source", "external")
+            put("model_loaded", ready)
+            put("model", if (ready) settings.externalModelId else JSONObject.NULL)
+            put("backend", "external")
+        }.toString())
+    }
+
+    private fun handleExternalModels(settings: AngiSettings, out: OutputStream) {
+        val models = JSONArray()
+        if (externalReady(settings)) {
+            for (id in listOf(settings.externalModelId, "angi-active-model", "angi-loaded-model")) {
+                models.put(JSONObject().apply {
+                    put("id", id)
+                    put("object", "model")
+                    put("owned_by", "angi-gateway")
+                })
+            }
+        }
+        sendJsonResponse(out, 200, JSONObject().put("object", "list").put("data", models).toString())
+    }
+
+    /**
+     * Transparent provider forwarding: preserve messages, tool schemas, tool results and SSE
+     * rather than flattening them into ANGI's text-only local GenerationRequest.
+     * The upstream API key remains in Android; only the gateway's own key enters Debian.
+     */
+    private suspend fun forwardExternal(
+        settings: AngiSettings,
+        request: HttpRequest,
+        endpoint: String,
+        socket: Socket,
+        out: OutputStream
+    ) = withContext(Dispatchers.IO) {
+        if (!externalReady(settings)) {
+            sendError(out, 503, "Provider unavailable", "provider_not_configured",
+                "Configure an external model, API URL and key in ANGI Settings.")
+            return@withContext
+        }
+        val body = runCatching { JSONObject(request.body) }.getOrNull()
+        if (body == null) {
+            sendError(out, 400, "Invalid JSON", "invalid_request_error", "Request body must be a JSON object.")
+            return@withContext
+        }
+        val requestedModel = body.optString("model", "").trim()
+        if (!acceptsModel(requestedModel, settings.externalModelId)) {
+            sendError(out, 400, "Invalid model", "invalid_request_error",
+                "Only the selected ANGI model or angi-active-model alias is available.")
+            return@withContext
+        }
+        body.put("model", settings.externalModelId)
+        val base = settings.externalApiBaseUrl.trim().trimEnd('/')
+            .let { if (it.endsWith("/v1")) it else "$it/v1" }
+        // The endpoint is selected from the fixed HTTP route table, never client-supplied.
+        val remote = runCatching {
+            val uri = java.net.URI("$base/$endpoint")
+            require((uri.scheme == "http" || uri.scheme == "https") && !uri.host.isNullOrBlank())
+            uri.toString()
+        }.getOrElse {
+            sendError(out, 503, "Invalid provider URL", "provider_not_configured",
+                "External provider URL in ANGI Settings is invalid.")
+            return@withContext
+        }
+        val outbound = Request.Builder()
+            .url(remote)
+            .header("Authorization", "Bearer ${settings.externalApiKey}")
+            .header("Accept", "text/event-stream, application/json")
+            .post(body.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
+            .build()
+        val call = upstreamClient.newCall(outbound)
+        // The peer may close while the provider is generating without emitting tokens.
+        val watcher = serverScope.launch(Dispatchers.IO) {
+            try {
+                if (socket.getInputStream().read() == -1) call.cancel()
+            } catch (_: SocketTimeoutException) {
+                // A quiet client is not a disconnected client.
+            } catch (_: IOException) {
+                call.cancel()
+            }
+        }
+        var headersWritten = false
+        try {
+            call.execute().use { response ->
+                val responseBody = response.body
+                val contentType = response.header("Content-Type")
+                    ?.takeIf { it.startsWith("text/event-stream") || it.startsWith("application/json") }
+                    ?: "application/json"
+                val header = "HTTP/1.1 ${response.code} ${response.message}\r\n" +
+                    "Content-Type: $contentType\r\n" +
+                    "Connection: close\r\n" +
+                    "Cache-Control: no-cache\r\n\r\n"
+                out.write(header.toByteArray(Charsets.UTF_8))
+                out.flush()
+                headersWritten = true
+                responseBody?.byteStream()?.use { it.copyTo(out, 8192) }
+                out.flush()
+            }
+        } catch (e: IOException) {
+            if (!headersWritten && !socket.isClosed) {
+                runCatching {
+                    sendError(out, 502, "Upstream unavailable", "upstream_error",
+                        "The selected external provider could not complete the request.")
+                }
+            }
+            Log.w(tag, "External gateway request failed: ${e.javaClass.simpleName}")
+        } finally {
+            watcher.cancel()
+            call.cancel()
+            runCatching { socket.shutdownInput() }
         }
     }
 
@@ -199,6 +356,15 @@ class OpenAiHttpServer(
                 put("backend", info.backend)
                 put("compute_unit", info.computeUnit)
             })
+            modelsArray.put(JSONObject().apply {
+                put("id", "angi-active-model")
+                put("object", "model")
+                put("created", 1700000000L)
+                put("owned_by", "angi")
+                put("name", "$modelName (Selected ANGI Model)")
+                put("backend", info.backend)
+                put("compute_unit", info.computeUnit)
+            })
         }
 
         val resp = JSONObject().apply {
@@ -232,7 +398,8 @@ class OpenAiHttpServer(
         val activeModelId = info.loadedModelId!!
         if (requestedModel.isNotEmpty()) {
             val matchesActive = requestedModel.equals(activeModelId, ignoreCase = true)
-            val matchesAlias = requestedModel.equals("angi-loaded-model", ignoreCase = true)
+            val matchesAlias = requestedModel.equals("angi-loaded-model", ignoreCase = true) ||
+                requestedModel.equals("angi-active-model", ignoreCase = true)
             if (!matchesActive && !matchesAlias) {
                 sendError(
                     out,
@@ -332,7 +499,8 @@ class OpenAiHttpServer(
         val activeModelId = info.loadedModelId!!
         if (requestedModel.isNotEmpty()) {
             val matchesActive = requestedModel.equals(activeModelId, ignoreCase = true)
-            val matchesAlias = requestedModel.equals("angi-loaded-model", ignoreCase = true)
+            val matchesAlias = requestedModel.equals("angi-loaded-model", ignoreCase = true) ||
+                requestedModel.equals("angi-active-model", ignoreCase = true)
             if (!matchesActive && !matchesAlias) {
                 sendError(
                     out,
@@ -718,6 +886,9 @@ class OpenAiHttpServer(
             404 -> "Not Found"
             429 -> "Too Many Requests"
             503 -> "Service Unavailable"
+            501 -> "Not Implemented"
+            502 -> "Bad Gateway"
+            413 -> "Payload Too Large"
             else -> "Error"
         }
         val bytes = body.toByteArray(Charsets.UTF_8)
@@ -819,6 +990,7 @@ class OpenAiHttpServer(
 
         // Read exact byte Content-Length to avoid UTF-8 character length truncation/mismatch
         val contentLength = headers["content-length"]?.toIntOrNull() ?: 0
+        if (contentLength < 0 || contentLength > 2_097_152) return null
         val body = if (contentLength > 0) {
             val bodyBytes = ByteArray(contentLength)
             var totalRead = 0
