@@ -9,7 +9,7 @@
 No model weights, external provider key or second runtime are installed inside Debian.
 The embedded OpenAI-compatible HTTP gateway now follows **Settings → Model Source** on every request.
 Select **Local** to use the loaded GenieX model or **External** to use your configured
-OpenAI-compatible model and key. Enable **Settings → Local API Server**.
+OpenAI-compatible model and key. Enable **Settings → OpenAI-Compatible API**.
 
 ANGI writes a private, scoped bootstrap file inside the *existing* Debian installation
 when the API server starts (or when Debian is installed afterwards).
@@ -35,8 +35,6 @@ external provider actually supports Responses**. Local GenieX currently supports
 Chat Completions, not the Responses API, so local Codex compatibility is still unfinished.
 This feature does **not** install Codex/OpenCode, repair the interactive terminal PTY,
 or establish the outbound phone bridge; those require separate device acceptance.
-
-**Current version: 0.2.8 (build 20)**
 
 ANGI is an Android AI assistant built around local Qualcomm GenieX inference, an isolated Debian/PRoot workspace, tool execution, an OpenAI-compatible local API, and an outbound phone bridge.
 
