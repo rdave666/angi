@@ -1,7 +1,7 @@
 # ANGI — Current System State
 
 **Current App Version**: `0.2.9` (build `21`)
-**Current HEAD**: `feat/debian-selected-model-gateway` (pending CI/device acceptance)  
+**Current branch**: `main` — selected-model gateway merged via PR #10 (2026-10-12)  
 **Last Updated**: 2026-10-12
 
 
@@ -206,11 +206,11 @@
 
 ## CI & Build State
 
-- **App Version**: `v0.2.8` (Build `20`)
-- **Cloud Debug APK (`assembleDebug`)**: pending final v0.2.2 / build 14 workflow
-- **Cloud Unit Tests (`testDebugUnitTest`)**: pending final v0.2.2 / build 14 workflow
-- **Lint Check (`lintDebug`)**: pending final v0.2.2 / build 14 workflow
-- **Remote CI State**: Workflow configured (`.github/workflows/build-apk.yml`); remote run outcome not independently verified.
+- **App Version**: `v0.2.9` (Build `21`)
+- **Feature CI**: both push and PR workflows passed tests, lint, APK packaging and signing on commit `4fc0d29277db4fe17b554c940b1ef10a0b9b5857`.
+- **Merge**: PR #10 merged into main at `5c3d313952bee2d74b70515163f30341b636b343`.
+- **Main-branch CI / release**: final APK publication to `dev-latest` requires independent verification after this documentation update.
+- **Physical Samsung S23 acceptance**: NOT VERIFIED for Debian gateway, Console, phone bridge or Codex.
 
 ---
 
