@@ -46,5 +46,5 @@ object GatewayGuestConfig {
         File(rootfsDir, "root/.config/angi/model-gateway.sh").delete()
     }
 
-    private fun quote(value: String): String = "'" + value.replace("'", "'\\\"'\\\"'") + "'"
+    private fun quote(value: String): String = "'" + value.replace("'", "'\"'\"'") + "'"
 }
