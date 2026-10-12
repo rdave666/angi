@@ -396,7 +396,6 @@ class OpenAiHttpServer(
         if (requestedModel.isNotEmpty()) {
             val matchesActive = requestedModel.equals(activeModelId, ignoreCase = true)
             val matchesAlias = requestedModel.equals("angi-loaded-model", ignoreCase = true) ||
-                requestedModel.equals("angi-active-model", ignoreCase = true) ||
                 requestedModel.equals("angi-active-model", ignoreCase = true)
             if (!matchesActive && !matchesAlias) {
                 sendError(
@@ -497,7 +496,8 @@ class OpenAiHttpServer(
         val activeModelId = info.loadedModelId!!
         if (requestedModel.isNotEmpty()) {
             val matchesActive = requestedModel.equals(activeModelId, ignoreCase = true)
-            val matchesAlias = requestedModel.equals("angi-loaded-model", ignoreCase = true)
+            val matchesAlias = requestedModel.equals("angi-loaded-model", ignoreCase = true) ||
+                requestedModel.equals("angi-active-model", ignoreCase = true)
             if (!matchesActive && !matchesAlias) {
                 sendError(
                     out,
