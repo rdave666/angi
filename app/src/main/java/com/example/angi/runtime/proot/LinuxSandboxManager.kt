@@ -103,6 +103,13 @@ class LinuxSandboxManager(
     }
 
     suspend fun install(onStepProgress: ((InstallStep) -> Unit)? = null): Result<Unit> {
+        // Prevent routine "Install"/duplicate requests from altering a working rootfs.
+        // A missing marker but recoverable Debian is also treated as installed.
+        if (paths.isInstalled()) {
+            _installStep.value = null
+            refreshEnvironments()
+            return Result.success(Unit)
+        }
         updateStatus(LinuxEnvironmentStatus.DOWNLOADING)
         val result = installer.installDebian { step ->
             _installStep.value = step
@@ -138,6 +145,7 @@ class LinuxSandboxManager(
             _installStep.value = null
             updateStatus(LinuxEnvironmentStatus.FAILED, err)
         }
+        _installStep.value = null
         refreshEnvironments()
         if (result.isSuccess) {
             // Debian may have been installed *after* the Android API server was enabled.
