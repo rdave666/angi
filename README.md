@@ -2,6 +2,40 @@
 
 # ANGI
 
+**Current version: 0.2.9 (build 21)**
+
+## Use the ANGI-selected model from Debian (0.2.9)
+
+No model weights, external provider key or second runtime are installed inside Debian.
+The embedded OpenAI-compatible HTTP gateway now follows **Settings → Model Source** on every request.
+Select **Local** to use the loaded GenieX model or **External** to use your configured
+OpenAI-compatible model and key. Enable **Settings → Local API Server**.
+
+ANGI writes a private, scoped bootstrap file inside the *existing* Debian installation
+when the API server starts (or when Debian is installed afterwards).
+Inside Debian:
+
+```sh
+. /root/.config/angi/model-gateway.sh
+curl -sS -H "Authorization: Bearer $OPENAI_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"angi-active-model","messages":[{"role":"user","content":"Hello from Debian"}]}' \
+  "$OPENAI_BASE_URL/chat/completions"
+```
+
+`OPENAI_BASE_URL` is Android's loopback API (`http://127.0.0.1:8080/v1` by default);
+`ANGI_MODEL` is `angi-active-model`. This shell file stores only a **separate
+loopback-only gateway key**, never the upstream model provider's credential.
+Other Android apps cannot call the API anonymously. The bootstrap file is removed
+when ANGI's local API stops, and recreated on restart. Existing shells need to source it explicitly.
+
+For external models, the gateway transparently forwards chat-completion payloads, tools,
+tool results and SSE chunks. `POST /v1/responses` forwards **only when the configured
+external provider actually supports Responses**. Local GenieX currently supports
+Chat Completions, not the Responses API, so local Codex compatibility is still unfinished.
+This feature does **not** install Codex/OpenCode, repair the interactive terminal PTY,
+or establish the outbound phone bridge; those require separate device acceptance.
+
 **Current version: 0.2.8 (build 20)**
 
 ANGI is an Android AI assistant built around local Qualcomm GenieX inference, an isolated Debian/PRoot workspace, tool execution, an OpenAI-compatible local API, and an outbound phone bridge.
