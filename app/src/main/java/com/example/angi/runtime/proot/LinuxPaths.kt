@@ -79,7 +79,7 @@ class LinuxPaths(
         root.mkdirs()
         val temp = File.createTempFile(".install-", ".tmp", root)
         try {
-            temp.writeText("STATUS=INSTALLED\\nDISTRO=$distroId\\nTIMESTAMP=${System.currentTimeMillis()}\\n")
+            temp.writeText("STATUS=INSTALLED\nDISTRO=$distroId\nTIMESTAMP=${System.currentTimeMillis()}\n")
             Files.move(temp.toPath(), markerFile.toPath(), StandardCopyOption.REPLACE_EXISTING)
         } finally {
             temp.delete()
