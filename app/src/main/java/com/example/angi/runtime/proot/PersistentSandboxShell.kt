@@ -59,7 +59,7 @@ class PersistentSandboxShell(
         currentSink.set(sink)
 
         // Sentinel command: run user command, capture exit code, then emit sentinel to stderr with cwd
-        val wrappedCommand = "$command ; __exit=\$? ; printf '\\n\\036%s\\037%d\\037%d\\037%s\\036\\n' '$nonce' \"\$__exit\" \"\$\$\" \"\$PWD\" >&2"
+        val wrappedCommand = "$command ; __exit=\$? ; printf '\\n\\036%s\\037%d\\037%d\\037%s\\036\\n' '$nonce' \"\$__exit\" \"\$\$\" \"\$PWD\" >&1"
         h.writeLine(wrappedCommand)
 
         val result = withTimeoutOrNull(timeoutSeconds.seconds) { sink.done.await() }
@@ -154,6 +154,11 @@ class PersistentSandboxShell(
 
     private fun dispatchStdout(line: String) {
         val sink = currentSink.get() ?: return
+        // The completion marker shares stdout with the command. The stdout reader
+        // cannot observe it until ALL preceding stdout bytes have been dispatched.
+        // A marker on stderr raced with buffered stdout and attributed the previous
+        // curl response to the next Console command.
+        if (completeIfSentinel(line, sink)) return
         if (sink.stdoutBuf.length < MAX_OUTPUT_LENGTH) {
             if (sink.stdoutBuf.isNotEmpty()) sink.stdoutBuf.append('\n')
             sink.stdoutBuf.append(line)
@@ -170,23 +175,32 @@ class PersistentSandboxShell(
         }
 
         val sink = currentSink.get() ?: return
-        if (line.length >= 2 && line.startsWith(RS) && line.endsWith(RS)) {
-            val payload = line.substring(1, line.length - 1)
-            val parts = payload.split(US)
-            if (parts.size == 4 && parts[0] == sink.nonce) {
-                val exit = parts[1].toIntOrNull() ?: -1
-                val pid = parts[2].toIntOrNull() ?: 0
-                val cwd = parts[3]
-                sink.done.complete(Result(exitCode = exit, cwd = cwd, bashPid = pid))
-                return
-            }
-        }
+        if (completeIfSentinel(line, sink)) return
 
         if (sink.stderrBuf.length < MAX_OUTPUT_LENGTH) {
             if (sink.stderrBuf.isNotEmpty()) sink.stderrBuf.append('\n')
             sink.stderrBuf.append(line)
         }
         runCatching { sink.onOutput?.invoke(line, true) }
+    }
+
+    private fun completeIfSentinel(line: String, sink: CommandSink): Boolean {
+        val result = parseCompletionMarker(line, sink.nonce) ?: return false
+        sink.done.complete(result)
+        return true
+    }
+
+    internal companion object {
+        fun parseCompletionMarker(line: String, nonce: String): Result? {
+            if (line.length < 2 || !line.startsWith(RS) || !line.endsWith(RS)) return null
+            val parts = line.substring(1, line.length - 1).split(US)
+            if (parts.size != 4 || parts[0] != nonce) return null
+            return Result(
+                exitCode = parts[1].toIntOrNull() ?: return null,
+                bashPid = parts[2].toIntOrNull() ?: return null,
+                cwd = parts[3]
+            )
+        }
     }
 
     private fun sendSignalToChildren(parentPid: Int, signal: String) {
